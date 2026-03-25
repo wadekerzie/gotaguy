@@ -1,4 +1,3 @@
-// Twilio sendSMS wrapper
 const twilio = require('twilio');
 
 const client = twilio(
@@ -7,11 +6,18 @@ const client = twilio(
 );
 
 async function sendSMS(to, body) {
-  return client.messages.create({
-    body,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to,
-  });
+  try {
+    const message = await client.messages.create({
+      body,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to,
+    });
+    console.log(`SMS sent to ${to}: ${body.substring(0, 50)}`);
+    return message;
+  } catch (err) {
+    console.error(`Failed to send SMS to ${to}:`, err.message);
+    throw new Error(`Twilio sendSMS failed: ${err.message}`);
+  }
 }
 
 module.exports = { sendSMS };
