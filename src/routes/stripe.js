@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { getStripe } = require('../services/stripe');
-const supabase = require('../db/client');
-const { updateCustomer } = require('../db/client');
+const { updateCustomer, getCustomerById, getWorkerById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
+const { calculateFee } = require('../utils/fees');
 
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -25,66 +25,140 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     const paymentIntent = event.data.object;
 
     try {
-      const customerPhone = paymentIntent.metadata.customer_phone;
-      const confirmedPrice = paymentIntent.amount_capturable / 100; // cents to dollars
+      const customerId = paymentIntent.metadata.customer_id;
+      const confirmedPrice = paymentIntent.amount_capturable / 100;
 
-      // Fetch customer record
-      const { data: customer, error: custErr } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('phone', customerPhone)
-        .single();
-
-      if (custErr || !customer) {
-        console.error('Customer not found for phone:', customerPhone);
+      const customer = await getCustomerById(customerId);
+      if (!customer) {
+        console.error('Customer not found for id:', customerId);
         return res.status(200).json({ received: true });
       }
 
-      // Get contractor phone from schedule.worker_id
+      // Calculate payout
+      const { contractorPayout } = calculateFee(confirmedPrice);
+
+      // Look up contractor
       const workerId = customer.data && customer.data.schedule && customer.data.schedule.worker_id;
-      let contractorPhone = null;
+      let worker = null;
+      let workerFirstName = 'your contractor';
 
       if (workerId) {
-        const { data: worker } = await supabase
-          .from('workers')
-          .select('phone')
-          .eq('id', workerId)
-          .single();
-
-        if (worker) {
-          contractorPhone = worker.phone;
+        try {
+          worker = await getWorkerById(workerId);
+          if (worker && worker.data && worker.data.name) {
+            workerFirstName = worker.data.name.split(' ')[0];
+          }
+        } catch (err) {
+          console.error('Failed to look up worker:', err.message);
         }
       }
 
-      // Update customer object
-      await updateCustomer(customerPhone, 'price_locked', null, null, {
-        job: {
-          ...((customer.data && customer.data.job) || {}),
+      // Update customer invoice data
+      const now = new Date().toISOString();
+      await updateCustomer(customer.phone, 'price_locked', null, null, {
+        invoice: {
+          ...((customer.data && customer.data.invoice) || {}),
           confirmed_price: confirmedPrice,
           stripe_payment_intent_id: paymentIntent.id,
+          price_locked_at: now,
+          payout_amount: contractorPayout,
+          status: 'authorized',
         },
       });
 
-      // Send confirmation SMS to homeowner
-      await sendSMS(
-        customerPhone,
-        `Your payment of $${confirmedPrice} has been authorized. Your contractor will be in touch shortly.`
-      );
-
-      // Send confirmation SMS to contractor
-      if (contractorPhone) {
-        const jobDesc = (customer.data && customer.data.job && customer.data.job.description) || 'repair job';
+      // Send to homeowner
+      try {
         await sendSMS(
-          contractorPhone,
-          `Payment of $${confirmedPrice} authorized for ${jobDesc}. You're good to go.`
+          customer.phone,
+          `Got it - $${confirmedPrice} is locked in. Your card won't be charged until you confirm ${workerFirstName} is done. We'll text you when they finish.`
         );
-      } else {
-        console.warn('No contractor found for customer:', customerPhone);
+      } catch (err) {
+        console.error('Failed to SMS homeowner:', err.message);
       }
 
-      console.log(`Price locked for ${customerPhone}: $${confirmedPrice}, PI: ${paymentIntent.id}`);
+      // Send to contractor
+      if (worker) {
+        try {
+          await sendSMS(
+            worker.phone,
+            `Customer locked in $${confirmedPrice}. That's your confirmed price - nothing for you to do. Complete the work and text DONE when finished.`
+          );
+        } catch (err) {
+          console.error('Failed to SMS contractor:', err.message);
+        }
+      } else {
+        console.warn('No contractor found for customer:', customer.id);
+      }
+
+      console.log(`Price locked for ${customer.phone}: $${confirmedPrice}, payout: $${contractorPayout}, PI: ${paymentIntent.id}`);
     } catch (err) {
       console.error('Error processing payment_intent.amount_capturable_updated:', err.message);
+    }
+  }
+
+  if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+
+    try {
+      const customerId = paymentIntent.metadata.customer_id;
+      const amount = paymentIntent.amount / 100;
+
+      const customer = await getCustomerById(customerId);
+      if (!customer) {
+        console.error('Customer not found for id:', customerId);
+        return res.status(200).json({ received: true });
+      }
+
+      const now = new Date().toISOString();
+      const invoice = (customer.data && customer.data.invoice) || {};
+      const payoutAmount = invoice.payout_amount || 0;
+
+      // Update invoice
+      await updateCustomer(customer.phone, 'closed', null, null, {
+        invoice: {
+          ...invoice,
+          status: 'captured',
+          captured_at: now,
+        },
+      });
+
+      // Look up contractor
+      const workerId = customer.data && customer.data.schedule && customer.data.schedule.worker_id;
+      let worker = null;
+
+      if (workerId) {
+        try {
+          worker = await getWorkerById(workerId);
+        } catch (err) {
+          console.error('Failed to look up worker:', err.message);
+        }
+      }
+
+      // Send receipt to customer
+      try {
+        await sendSMS(
+          customer.phone,
+          `Payment of $${amount} confirmed. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`
+        );
+      } catch (err) {
+        console.error('Failed to send receipt SMS:', err.message);
+      }
+
+      // Send payout confirmation to contractor
+      if (worker) {
+        try {
+          await sendSMS(
+            worker.phone,
+            `Job closed. $${payoutAmount} is on its way to your debit card. Nice work.`
+          );
+        } catch (err) {
+          console.error('Failed to send payout SMS:', err.message);
+        }
+      }
+
+      console.log(`Payment captured for ${customer.phone}: $${amount}, payout: $${payoutAmount}`);
+    } catch (err) {
+      console.error('Error processing payment_intent.succeeded:', err.message);
     }
   }
 

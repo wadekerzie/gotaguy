@@ -8,7 +8,7 @@ Stored in the `customers` table with a JSONB `data` column.
 |--------|------|-------|
 | `id` | UUID | Primary key, auto-generated |
 | `phone` | TEXT | E.164 format, unique |
-| `status` | TEXT | One of: `new`, `scoping`, `quoting`, `scheduling`, `agreed`, `card_captured`, `dispatched`, `active`, `complete`, `closed` |
+| `status` | TEXT | One of: `new`, `scoping`, `quoting`, `scheduling`, `agreed`, `dispatched`, `price_locked`, `active`, `complete`, `closed` |
 | `data` | JSONB | See structure below |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
 
@@ -41,9 +41,16 @@ Stored in the `customers` table with a JSONB `data` column.
     "worker_id": ""
   },
   "invoice": {
-    "amount": 0,
-    "status": "",
-    "paid_at": ""
+    "quoted_price_low": 0,
+    "quoted_price_high": 0,
+    "confirmed_price": 0,
+    "stripe_payment_intent_id": "",
+    "price_locked_at": "",
+    "contractor_notified_at": "",
+    "captured_at": "",
+    "payout_amount": 0,
+    "payout_fired_at": "",
+    "status": "pending | authorized | captured | failed | disputed"
   },
   "comms": [
     { "ts": "", "direction": "inbound|outbound", "body": "" }
