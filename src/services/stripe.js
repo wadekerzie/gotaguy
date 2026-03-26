@@ -1,5 +1,15 @@
-// Stripe payment intent helpers (stub)
-// Will use Stripe Connect for marketplace payments,
-// instant contractor payout, and 1099 handling
+const Stripe = require('stripe');
 
-module.exports = {};
+let stripe = null;
+
+function getStripe() {
+  if (!stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not set');
+    }
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  }
+  return stripe;
+}
+
+module.exports = { getStripe };
