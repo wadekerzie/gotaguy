@@ -105,6 +105,10 @@ async function handleArrived(workerRecord, customerRecord) {
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
   const workerFirstName = workerName.split(' ')[0];
 
+  // Send address confirmation to contractor
+  const address = (customerRecord.data.contact && customerRecord.data.contact.address) || 'Address not provided';
+  await sendSMS(workerRecord.phone, `Job confirmed. Head to ${address}. Text DONE when the work is complete.`);
+
   // Generate Stripe payment link
   let paymentUrl;
   try {

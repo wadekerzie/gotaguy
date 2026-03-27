@@ -22,8 +22,8 @@ async function dispatchJob(customerRecord) {
     const zip = zipMatch ? zipMatch[1] : null;
 
     if (!zip) {
-      console.error('dispatchJob: no zip code found in address for customer', customerRecord.id);
-      await sendSMS(process.env.MY_CELL_NUMBER, `Dispatch failed - no zip in address for job ${customerRecord.id}`);
+      console.error('dispatchJob: zip extraction failed for customer', customerRecord.id);
+      await sendSMS(process.env.MY_CELL_NUMBER, `ZIP EXTRACTION FAILED - Job ${customerRecord.id} - Address: ${address} - cannot dispatch.`);
       return;
     }
 
