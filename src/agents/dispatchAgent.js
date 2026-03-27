@@ -1,6 +1,5 @@
 const { getActiveWorkersByTradeAndZip, updateCustomer } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
-const { calculateFee } = require('../utils/fees');
 
 async function dispatchJob(customerRecord) {
   try {
@@ -40,15 +39,12 @@ async function dispatchJob(customerRecord) {
     const priceLow = job.quoted_price_low || 0;
     const priceHigh = job.quoted_price_high || 0;
 
-    const feeLow = calculateFee(priceLow);
-    const feeHigh = calculateFee(priceHigh);
-
     // Parse city from address
     const cityMatch = address.match(/([A-Za-z\s]+),?\s*[A-Z]{2}\s*\d{5}/);
     const city = cityMatch ? cityMatch[1].trim() : '';
 
     for (const worker of workers) {
-      const jobCard = `New job - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuote: $${priceLow}-$${priceHigh}\nYour take: $${feeLow.contractorPayout}-$${feeHigh.contractorPayout}\nReply CLAIM to take it`;
+      const jobCard = `New job - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nReply CLAIM to take it`;
 
       try {
         await sendSMS(worker.phone, jobCard);
