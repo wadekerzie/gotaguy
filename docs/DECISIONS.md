@@ -10,7 +10,7 @@
 | **Railway** | Always-on server needed for cron jobs and pg_notify listeners |
 | **Stripe Connect** | Marketplace payments, instant contractor payout, 1099 handling |
 | **One Twilio number** | AI routes by whether inbound number is in customers or workers table |
-| **Fee structure** | Under $450 = $20 fee, $450+ = $35 fee |
+| **Fee structure** | 10% of job value, minimum $25, maximum $100. Contractor pitch: "We take 10% - minimum $25, never more than $100." |
 | **Repair only** | One trade, one visit, parts from supply house, under $800 |
 | **First-contact classifier** | Uses Claude API to classify unknown inbound numbers as homeowner, contractor, or ambiguous. Defaults to homeowner on error. |
 | **Contractor intake** | Admin-only via POST /admin/contractors. Inbound contractor texts are captured as leads and flagged to MY_CELL_NUMBER. |
