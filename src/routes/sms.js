@@ -4,11 +4,12 @@ const router = express.Router();
 const { resolveContact } = require('../utils/router');
 const { runCustomerAgent } = require('../agents/customerAgent');
 const { runContractorAgent } = require('../agents/contractorAgent');
-const { updateCustomer, updateWorker, getCustomerById, getWorkerById } = require('../db/client');
+const { updateCustomer, updateWorker, createWorker, getCustomerById, getWorkerById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { dispatchJob } = require('../agents/dispatchAgent');
 const { getStripe } = require('../services/stripe');
 const { calculateFee } = require('../utils/fees');
+const { classifyContact } = require('../utils/classifier');
 const supabase = require('../db/client');
 
 // Twilio signature validation middleware
@@ -61,7 +62,91 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     // Resolve contact
-    const { type, record } = await resolveContact(from);
+    let resolved = await resolveContact(from);
+
+    // --- New contact (unknown number) ---
+    if (!resolved) {
+      const now = new Date().toISOString();
+      const classification = await classifyContact(body);
+      console.log(`Classified ${from} as: ${classification}`);
+
+      if (classification === 'contractor') {
+        // Create worker lead — do NOT proceed to any agent
+        await createWorker(from);
+        await supabase
+          .from('workers')
+          .update({
+            status: 'lead',
+            data: { first_message: body, flagged_at: now, source: 'inbound_sms' }
+          })
+          .eq('phone', from);
+        await sendSMS(from, "Sounds like you might be one of the skilled tradespeople we work with. We'll pass your info to our team and someone will be in touch with you shortly.");
+        await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR LEAD - ${from} - ${body}`);
+        return;
+      }
+
+      if (classification === 'ambiguous') {
+        // Create customer with ambiguous flag
+        const { data: newCustomer, error: createErr } = await supabase
+          .from('customers')
+          .insert({
+            phone: from,
+            status: 'new',
+            data: {
+              ambiguous: true,
+              classified_as: 'ambiguous',
+              classified_at: now,
+              comms: [{ ts: now, direction: 'in', body: body }],
+              history: [{ ts: now, agent: 'classifier', action: 'classified as ambiguous' }]
+            }
+          })
+          .select()
+          .single();
+
+        if (createErr) {
+          console.error('Failed to create ambiguous customer:', createErr.message);
+          return;
+        }
+
+        const ambiguousReply = "Hey - are you looking to get something fixed around the house, or are you a tradesperson looking to pick up jobs in Collin County?";
+        await sendSMS(from, ambiguousReply);
+        await updateCustomer(from, 'new', null, ambiguousReply, {});
+        return;
+      }
+
+      // Default: homeowner — create customer and fall through to customerAgent
+      const { data: newCustomer, error: createErr } = await supabase
+        .from('customers')
+        .insert({
+          phone: from,
+          status: 'new',
+          data: {
+            classified_as: 'homeowner',
+            classified_at: now,
+            comms: [],
+            history: [{ ts: now, agent: 'classifier', action: 'classified as homeowner' }]
+          }
+        })
+        .select()
+        .single();
+
+      if (createErr) {
+        console.error('Failed to create homeowner customer:', createErr.message);
+        return;
+      }
+
+      console.log(`New homeowner customer created for ${from}`);
+      // Fall through to customer flow below with the new record
+      resolved = { type: 'customer', record: newCustomer };
+    }
+
+    const { type, record } = resolved;
+
+    // --- Worker lead returning ---
+    if (type === 'worker' && record.status === 'lead') {
+      await sendSMS(from, "We already have your info - someone from GotaGuy will be in touch soon.");
+      return;
+    }
 
     // --- Worker flow ---
     if (type === 'worker') {

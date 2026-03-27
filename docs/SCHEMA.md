@@ -11,11 +11,15 @@ Stored in the `customers` table with a JSONB `data` column.
 | `status` | TEXT | One of: `new`, `scoping`, `quoting`, `scheduling`, `agreed`, `dispatched`, `price_locked`, `active`, `complete`, `closed` |
 | `data` | JSONB | See structure below |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
+| `updated_at` | TIMESTAMPTZ | Auto-updated via trigger on every row change |
 
 ### `data` JSONB Structure
 
 ```json
 {
+  "classified_as": "homeowner | contractor | ambiguous",
+  "classified_at": "",
+  "ambiguous": false,
   "contact": {
     "name": "",
     "email": "",
@@ -52,6 +56,9 @@ Stored in the `customers` table with a JSONB `data` column.
     "payout_fired_at": "",
     "status": "pending | authorized | captured | failed | disputed"
   },
+  "last_nudge_at": "",
+  "last_dispatch_alert_at": "",
+  "last_locked_alert_at": "",
   "comms": [
     { "ts": "", "direction": "inbound|outbound", "body": "" }
   ],
@@ -71,9 +78,10 @@ Stored in the `workers` table with a JSONB `data` column.
 |--------|------|-------|
 | `id` | UUID | Primary key, auto-generated |
 | `phone` | TEXT | E.164 format, unique |
-| `status` | TEXT | One of: `lead`, `contacted`, `onboarding`, `active`, `inactive` |
+| `status` | TEXT | One of: `lead`, `pending_stripe`, `active`, `inactive` |
 | `data` | JSONB | See structure below |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
+| `updated_at` | TIMESTAMPTZ | Auto-updated via trigger on every row change |
 
 ### `data` JSONB Structure
 
@@ -85,8 +93,13 @@ Stored in the `workers` table with a JSONB `data` column.
   "license_verified": false,
   "zip_codes": [],
   "stripe_account_id": "",
-  "jobs_completed": 0,
-  "rating": 0,
+  "onboarding": {
+    "tier": 1,
+    "license_verified": false,
+    "stripe_express_complete": false,
+    "jobs_completed": 0,
+    "lifetime_earnings": 0
+  },
   "comms": [
     { "ts": "", "direction": "inbound|outbound", "body": "" }
   ],
@@ -95,3 +108,15 @@ Stored in the `workers` table with a JSONB `data` column.
   ]
 }
 ```
+
+---
+
+## Monitor Logs
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | Primary key, auto-generated |
+| `ran_at` | TIMESTAMPTZ | Default now() |
+| `checks_run` | INTEGER | Number of checks executed |
+| `issues_found` | INTEGER | Total issues detected |
+| `details` | JSONB | Additional run details |

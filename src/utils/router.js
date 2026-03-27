@@ -24,19 +24,8 @@ async function resolveContact(phone) {
       return { type: 'worker', record: worker };
     }
 
-    // Not found — create new customer
-    const { data: newCustomer, error: createErr } = await supabase
-      .from('customers')
-      .insert({ phone, status: 'new', data: {} })
-      .select()
-      .single();
-
-    if (createErr) {
-      throw new Error(`Failed to create customer: ${createErr.message}`);
-    }
-
-    console.log(`New customer created for ${phone}`);
-    return { type: 'customer', record: newCustomer };
+    // Not found — return null so sms.js can classify
+    return null;
   } catch (err) {
     console.error(`resolveContact error for ${phone}:`, err.message);
     throw err;

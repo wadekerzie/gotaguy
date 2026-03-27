@@ -15,9 +15,10 @@ Handles inbound SMS from homeowners. Drives the customer status through the life
 Handles inbound SMS from contractors. Manages job claims, ETAs, and close-out.
 
 - Receives inbound SMS from known contractor numbers
-- Processes job claim responses (accept/decline)
-- Collects ETA and arrival confirmations
-- Handles job close-out and completion reporting
+- Processes CLAIM command — atomically locks job to contractor
+- Processes ARRIVED command — generates Stripe payment link for customer
+- Processes DONE command — triggers YES/NO confirmation from customer
+- Handles free-text questions via Claude API
 - Updates the worker object in Supabase at each step
 
 ## dispatchAgent
@@ -26,15 +27,36 @@ Fires when a customer status hits `agreed`. Matches and notifies contractors.
 
 - Queries the workers table by trade and zip code
 - Filters for active, available contractors
-- Sends a job card SMS to matched contractors
+- Sends a job card SMS to matched contractors with fee breakdown
 - Tracks which contractors were notified
 - Updates customer status to `dispatched`
 
+## welcomeContractor
+
+Fires when a contractor is added via admin endpoint. Sends onboarding sequence.
+
+- Sends two-message welcome SMS with 3-second delay
+- Creates Stripe Express account for contractor payouts
+- Generates Stripe onboarding link and includes in message 2
+- Stores stripe_account_id on worker record
+- Falls back gracefully if Stripe errors (sends holding message, alerts admin)
+
+## classifier (utility)
+
+Classifies first-contact SMS from unknown numbers. Not a full agent — a single Claude API call.
+
+- Returns one of: `homeowner`, `contractor`, `ambiguous`
+- Homeowner: proceeds to customerAgent as normal
+- Contractor: creates worker lead, alerts MY_CELL_NUMBER, does not proceed to any agent
+- Ambiguous: creates customer with clarifying question, next reply routes normally
+- Defaults to `homeowner` on any error to never block a homeowner conversation
+
 ## monitorAgent
 
-Cron job running every 10 minutes. Watches for stalled objects and exceptions.
+Cron job running every 10 minutes. Watches for stalled objects and roster gaps.
 
-- Scans for customer objects stuck in a status too long
-- Fires follow-up SMS to nudge stalled conversations
-- Scans for contractor objects that need attention
-- Alerts `MY_CELL_NUMBER` on exceptions or objects that need human intervention
+- **Check 1 — Stalled conversations**: Customers in new/scoping/quoting/scheduling with no activity for 2+ hours get a nudge SMS. Cooldown: 24 hours per customer.
+- **Check 2 — Unclaimed jobs**: Dispatched jobs not claimed within 2 hours trigger admin alert. Cooldown: 4 hours per job.
+- **Check 3 — Stalled price_locked**: Jobs stuck at price_locked for 4+ hours trigger admin alert. Cooldown: 6 hours per job.
+- **Check 4 — Roster gaps**: Trades with zero active contractors trigger admin alert. Cooldown: 24 hours per trade.
+- Logs every run to `monitor_logs` table with checks_run and issues_found counts.

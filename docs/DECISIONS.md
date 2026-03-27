@@ -10,5 +10,9 @@
 | **Railway** | Always-on server needed for cron jobs and pg_notify listeners |
 | **Stripe Connect** | Marketplace payments, instant contractor payout, 1099 handling |
 | **One Twilio number** | AI routes by whether inbound number is in customers or workers table |
-| **Fee structure** | 10% of job value, minimum $15, maximum $150 |
+| **Fee structure** | Under $450 = $20 fee, $450+ = $35 fee |
 | **Repair only** | One trade, one visit, parts from supply house, under $800 |
+| **First-contact classifier** | Uses Claude API to classify unknown inbound numbers as homeowner, contractor, or ambiguous. Defaults to homeowner on error. |
+| **Contractor intake** | Admin-only via POST /admin/contractors. Inbound contractor texts are captured as leads and flagged to MY_CELL_NUMBER. |
+| **Default zip coverage** | All contractors default to the full Collin County cluster in constants.js. |
+| **Monitor agent** | Runs every 10 minutes via node-cron. All alerts go to MY_CELL_NUMBER. |
