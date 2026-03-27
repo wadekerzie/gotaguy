@@ -11,7 +11,10 @@ async function welcomeContractor(workerRecord) {
   const firstName = name.split(' ')[0];
 
   // Message 1 — always send
-  const msg1 = `Hey ${firstName} - Wade here. Welcome to GotaGuy. I'm sending repair jobs your way in Collin County - pre-scoped, quoted, and ready to go. Pay hits your debit card the same day the job closes. One quick step to get set up for payouts:`;
+  const businessName = workerRecord.data && workerRecord.data.business_name;
+  const msg1 = businessName
+    ? `Hey ${firstName} - Wade here. Welcome to GotaGuy on behalf of ${businessName}. Jobs will come to this number - claim them, dispatch your team your way, and text ARRIVED when they're on site and DONE when the job is complete. Pay hits your account same day. One step to get set up:`
+    : `Hey ${firstName} - Wade here. Welcome to GotaGuy. I'm sending repair jobs your way in Collin County - pre-scoped, quoted, and ready to go. Pay hits your debit card the same day the job closes. One quick step to get set up for payouts:`;
 
   await sendSMS(workerRecord.phone, msg1);
 
