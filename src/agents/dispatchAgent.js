@@ -43,8 +43,10 @@ async function dispatchJob(customerRecord) {
     const cityMatch = address.match(/([A-Za-z\s]+),?\s*[A-Z]{2}\s*\d{5}/);
     const city = cityMatch ? cityMatch[1].trim() : '';
 
+    const shortId = customerRecord.short_id || '????';
+
     for (const worker of workers) {
-      const jobCard = `New job - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nReply CLAIM to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nReply CLAIM ${shortId} to take it`;
 
       try {
         await sendSMS(worker.phone, jobCard);

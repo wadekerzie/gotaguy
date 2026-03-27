@@ -4,7 +4,7 @@ const router = express.Router();
 const { resolveContact } = require('../utils/router');
 const { runCustomerAgent } = require('../agents/customerAgent');
 const { runContractorAgent } = require('../agents/contractorAgent');
-const { updateCustomer, updateWorker, createWorker, getCustomerById, getWorkerById } = require('../db/client');
+const { updateCustomer, updateWorker, createWorker, getCustomerById, getWorkerById, generateShortId, getCustomerByShortId } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { dispatchJob } = require('../agents/dispatchAgent');
 const { getStripe } = require('../services/stripe');
@@ -87,11 +87,13 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
       if (classification === 'ambiguous') {
         // Create customer with ambiguous flag
+        const ambiguousShortId = await generateShortId();
         const { data: newCustomer, error: createErr } = await supabase
           .from('customers')
           .insert({
             phone: from,
             status: 'new',
+            short_id: ambiguousShortId,
             data: {
               ambiguous: true,
               classified_as: 'ambiguous',
@@ -115,11 +117,13 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       }
 
       // Default: homeowner — create customer and fall through to customerAgent
+      const homeownerShortId = await generateShortId();
       const { data: newCustomer, error: createErr } = await supabase
         .from('customers')
         .insert({
           phone: from,
           status: 'new',
+          short_id: homeownerShortId,
           data: {
             classified_as: 'homeowner',
             classified_at: now,
@@ -150,22 +154,23 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // --- Worker flow ---
     if (type === 'worker') {
-      // Find the customer record this worker is assigned to (if any)
+      // Parse command + optional job ID (e.g. "CLAIM 4821", "ARRIVED", "DONE 3190")
+      const commandMatch = trimmedBody.match(/^(CLAIM|ARRIVED|DONE)(?:\s+(\d{4}))?$/);
+      const commandKeyword = commandMatch ? commandMatch[1] : null;
+      const commandJobId = commandMatch ? (commandMatch[2] ? parseInt(commandMatch[2], 10) : null) : null;
+
       let customerRecord = null;
-      const { data: assignedCustomers } = await supabase
-        .from('customers')
-        .select('*')
-        .in('status', ['dispatched', 'active', 'price_locked', 'complete'])
-        .order('created_at', { ascending: false });
 
-      if (assignedCustomers) {
-        customerRecord = assignedCustomers.find(c =>
-          c.data && c.data.schedule && c.data.schedule.worker_id === record.id
-        );
-      }
-
-      // If no assigned customer and command is CLAIM, find most recent dispatched job
-      if (!customerRecord && trimmedBody === 'CLAIM') {
+      if (commandJobId) {
+        // Explicit job ID provided — look up by short_id
+        try {
+          customerRecord = await getCustomerByShortId(commandJobId);
+        } catch (err) {
+          await sendSMS(from, `We can't find job #${commandJobId}. Double-check the number and try again.`);
+          return;
+        }
+      } else if (commandKeyword === 'CLAIM') {
+        // CLAIM with no job ID — find most recent dispatched job
         const { data: dispatchedJobs } = await supabase
           .from('customers')
           .select('*')
@@ -175,6 +180,38 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
         if (dispatchedJobs && dispatchedJobs.length > 0) {
           customerRecord = dispatchedJobs[0];
+        }
+      } else if (commandKeyword) {
+        // ARRIVED or DONE with no job ID — find jobs assigned to this worker
+        const { data: assignedCustomers } = await supabase
+          .from('customers')
+          .select('*')
+          .in('status', ['active', 'price_locked', 'complete'])
+          .order('created_at', { ascending: false });
+
+        const myJobs = (assignedCustomers || []).filter(c =>
+          c.data && c.data.schedule && c.data.schedule.worker_id === record.id
+        );
+
+        if (myJobs.length === 1) {
+          customerRecord = myJobs[0];
+        } else if (myJobs.length > 1) {
+          const jobList = myJobs.map(j => `#${j.short_id || '?'}`).join(', ');
+          await sendSMS(from, `You have multiple active jobs (${jobList}) - please include the job number, e.g. ${commandKeyword} ${myJobs[0].short_id || '0000'}.`);
+          return;
+        }
+      } else {
+        // Free text — find assigned customer for context
+        const { data: assignedCustomers } = await supabase
+          .from('customers')
+          .select('*')
+          .in('status', ['dispatched', 'active', 'price_locked', 'complete'])
+          .order('created_at', { ascending: false });
+
+        if (assignedCustomers) {
+          customerRecord = assignedCustomers.find(c =>
+            c.data && c.data.schedule && c.data.schedule.worker_id === record.id
+          );
         }
       }
 
@@ -302,9 +339,11 @@ async function handleYes(customerRecord, from) {
       }
     }
 
+    const jobId = customerRecord.short_id || '????';
+
     // Send receipt to customer
     try {
-      await sendSMS(from, `Payment of $${confirmedPrice} confirmed. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`);
+      await sendSMS(from, `Payment of $${confirmedPrice} confirmed for Job #${jobId}. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`);
     } catch (err) {
       console.error('Failed to send receipt SMS:', err.message);
     }
@@ -312,13 +351,13 @@ async function handleYes(customerRecord, from) {
     // Send payout confirmation to contractor
     if (worker) {
       try {
-        await sendSMS(worker.phone, `Job closed. $${payoutAmount} is on its way to your debit card. Nice work.`);
+        await sendSMS(worker.phone, `Job #${jobId} closed. $${payoutAmount} is on its way to your debit card. Nice work.`);
       } catch (err) {
         console.error('Failed to send payout SMS:', err.message);
       }
     }
 
-    console.log(`Payment captured for ${from}: $${confirmedPrice}, payout: $${payoutAmount}`);
+    console.log(`Payment captured for ${from}: Job #${jobId} $${confirmedPrice}, payout: $${payoutAmount}`);
   } catch (err) {
     console.error('handleYes error:', err.message);
   }
@@ -344,7 +383,8 @@ async function handleNo(customerRecord, from) {
 
     await sendSMS(from, "No problem - what's the concern? We want to make sure you're satisfied before releasing payment.");
 
-    await sendSMS(process.env.MY_CELL_NUMBER, `DISPUTE - ${from} - Job ${customerRecord.id} - ${jobCategory} - $${confirmedPrice} - ${contractorName}`);
+    const jobId = customerRecord.short_id || '????';
+    await sendSMS(process.env.MY_CELL_NUMBER, `DISPUTE - ${from} - Job #${jobId} - ${jobCategory} - $${confirmedPrice} - ${contractorName}`);
 
     await updateCustomer(from, 'complete', 'NO', "No problem - what's the concern? We want to make sure you're satisfied before releasing payment.", {});
 

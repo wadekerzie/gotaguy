@@ -77,13 +77,14 @@ async function handleClaim(workerRecord, customerRecord) {
 
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
   const workerFirstName = workerName.split(' ')[0];
+  const jobId = customerRecord.short_id || '????';
 
   // Send to worker
-  await sendSMS(workerRecord.phone, `Job is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED when you get there.`);
+  await sendSMS(workerRecord.phone, `Job #${jobId} is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED ${jobId} when you get there.`);
 
   // Send to customer (non-blocking — don't fail the claim if customer SMS fails)
   try {
-    await sendSMS(customerRecord.phone, `Good news - ${workerFirstName} will be there ${window}. Text us if you have any questions.`);
+    await sendSMS(customerRecord.phone, `Good news - ${workerFirstName} will be there ${window}. Text us if you have any questions. (Job #${jobId})`);
   } catch (err) {
     console.error('Failed to notify customer of claim:', err.message);
   }
@@ -107,7 +108,8 @@ async function handleArrived(workerRecord, customerRecord) {
 
   // Send address confirmation to contractor
   const address = (customerRecord.data.contact && customerRecord.data.contact.address) || 'Address not provided';
-  await sendSMS(workerRecord.phone, `Job confirmed. Head to ${address}. Text DONE when the work is complete.`);
+  const jobId = customerRecord.short_id || '????';
+  await sendSMS(workerRecord.phone, `Job #${jobId} confirmed. Head to ${address}. Text DONE ${jobId} when the work is complete.`);
 
   // Generate Stripe payment link
   let paymentUrl;
@@ -148,13 +150,17 @@ async function handleDone(workerRecord, customerRecord) {
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
   const workerFirstName = workerName.split(' ')[0];
   const confirmedPrice = invoice.confirmed_price;
+  const jobId = customerRecord.short_id || '????';
 
   // Update customer status to complete
   await updateCustomer(customerRecord.phone, 'complete', null, null, {});
 
+  // Send to contractor
+  await sendSMS(workerRecord.phone, `Job #${jobId} marked complete. Waiting on customer to confirm.`);
+
   // Send to customer
   try {
-    await sendSMS(customerRecord.phone, `${workerFirstName} says the job is done. Happy with the work? Reply YES to release your $${confirmedPrice} payment, or NO if you have a concern.`);
+    await sendSMS(customerRecord.phone, `${workerFirstName} says the job is done (Job #${jobId}). Happy with the work? Reply YES to release your $${confirmedPrice} payment, or NO if you have a concern.`);
   } catch (err) {
     console.error('Failed to send completion notice to customer:', err.message);
   }

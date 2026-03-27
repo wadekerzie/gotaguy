@@ -204,6 +204,34 @@ async function getWorkerById(id) {
   }
 }
 
+async function generateShortId() {
+  for (let i = 0; i < 10; i++) {
+    const id = Math.floor(1000 + Math.random() * 9000);
+    const { data } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('short_id', id)
+      .maybeSingle();
+    if (!data) return id;
+  }
+  throw new Error('Failed to generate unique short_id after 10 attempts');
+}
+
+async function getCustomerByShortId(shortId) {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('short_id', shortId)
+      .single();
+    if (error) throw new Error(`getCustomerByShortId error: ${error.message}`);
+    return data;
+  } catch (err) {
+    console.error('getCustomerByShortId error:', err.message);
+    throw err;
+  }
+}
+
 module.exports = supabase;
 module.exports.updateCustomer = updateCustomer;
 module.exports.getWorkerByPhone = getWorkerByPhone;
@@ -212,3 +240,5 @@ module.exports.updateWorker = updateWorker;
 module.exports.getActiveWorkersByTradeAndZip = getActiveWorkersByTradeAndZip;
 module.exports.getCustomerById = getCustomerById;
 module.exports.getWorkerById = getWorkerById;
+module.exports.generateShortId = generateShortId;
+module.exports.getCustomerByShortId = getCustomerByShortId;
