@@ -8,7 +8,7 @@ Stored in the `customers` table with a JSONB `data` column.
 |--------|------|-------|
 | `id` | UUID | Primary key, auto-generated |
 | `phone` | TEXT | E.164 format, unique |
-| `status` | TEXT | One of: `new`, `scoping`, `quoting`, `scheduling`, `agreed`, `dispatched`, `price_locked`, `active`, `complete`, `closed` |
+| `status` | TEXT | One of: `new`, `scoping`, `quoting`, `scheduling`, `agreed`, `waitlisted`, `dispatched`, `price_locked`, `active`, `complete`, `closed` |
 | `data` | JSONB | See structure below |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
 | `updated_at` | TIMESTAMPTZ | Auto-updated via trigger on every row change |
@@ -55,6 +55,13 @@ Stored in the `customers` table with a JSONB `data` column.
     "payout_amount": 0,
     "payout_fired_at": "",
     "status": "pending | authorized | captured | failed | disputed"
+  },
+  "waitlist": {
+    "waitlisted_at": "",
+    "retry_count": 0,
+    "last_retry_at": "",
+    "escalated_at": "",
+    "reason": "no_match"
   },
   "last_nudge_at": "",
   "last_dispatch_alert_at": "",

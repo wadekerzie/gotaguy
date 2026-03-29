@@ -80,4 +80,39 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
   }
 });
 
+// Manual dispatch override for waitlisted jobs
+router.post('/dispatch/:customerId', requireAdminKey, async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    // Look up customer by UUID
+    const { data: customer, error: fetchErr } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', customerId)
+      .single();
+
+    if (fetchErr || !customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    if (customer.status !== 'waitlisted') {
+      return res.status(400).json({ error: `Customer status is '${customer.status}', expected 'waitlisted'` });
+    }
+
+    const { retryDispatch } = require('../agents/dispatchAgent');
+    const result = await retryDispatch(customer);
+
+    if (result.dispatched) {
+      console.log(`Admin force-dispatched Job #${customer.short_id || '????'} to ${result.workersNotified} workers`);
+      return res.status(200).json({ success: true, workersNotified: result.workersNotified });
+    }
+
+    return res.status(200).json({ success: false, reason: result.reason, retryCount: result.retryCount });
+  } catch (err) {
+    console.error('Admin dispatch override error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

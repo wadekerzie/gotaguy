@@ -17,3 +17,4 @@
 | **Default zip coverage** | All contractors default to the full Collin County cluster in constants.js. |
 | **Monitor agent** | Runs every 10 minutes via node-cron. All alerts go to MY_CELL_NUMBER. |
 | **Job card pricing** | Job card displays the customer-facing quoted range only. Contractor net is not shown on the job card. Contractors calculate their own take based on the flat fee structure communicated during onboarding. |
+| **Waitlist overflow** | When dispatch finds zero matching contractors, customer moves to `waitlisted` status with a holding message. Monitor agent retries every 30 minutes up to 6 times, then escalates to admin. Admin can manually force-dispatch via POST /admin/dispatch/:customerId. Customer texts while waitlisted get a holding reply; CANCEL cancels the job. |

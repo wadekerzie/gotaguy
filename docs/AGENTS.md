@@ -27,9 +27,10 @@ Fires when a customer status hits `agreed`. Matches and notifies contractors.
 
 - Queries the workers table by trade and zip code
 - Filters for active, available contractors
-- Sends a job card SMS to matched contractors with fee breakdown
+- Sends a job card SMS to matched contractors with quoted price range
 - Tracks which contractors were notified
 - Updates customer status to `dispatched`
+- **Zero-match handling**: When no contractors match, sets status to `waitlisted`, sends holding message to customer, alerts admin. Also exports `retryDispatch(customerRecord)` for use by monitor agent and admin override.
 
 ## welcomeContractor
 
@@ -59,4 +60,5 @@ Cron job running every 10 minutes. Watches for stalled objects and roster gaps.
 - **Check 2 — Unclaimed jobs**: Dispatched jobs not claimed within 2 hours trigger admin alert. Cooldown: 4 hours per job.
 - **Check 3 — Stalled price_locked**: Jobs stuck at price_locked for 4+ hours trigger admin alert. Cooldown: 6 hours per job.
 - **Check 4 — Roster gaps**: Trades with zero active contractors trigger admin alert. Cooldown: 24 hours per trade.
+- **Check 5 — Waitlisted retries**: Customers in `waitlisted` status get a retry dispatch every 30 minutes, up to 6 attempts. After 6 failures, escalates to admin with full job details. Cooldown: 30 minutes per customer.
 - Logs every run to `monitor_logs` table with checks_run and issues_found counts.

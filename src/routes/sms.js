@@ -225,6 +225,22 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // --- Customer flow ---
 
+    // --- Waitlisted customer handling ---
+    if (record.status === 'waitlisted') {
+      if (trimmedBody === 'CANCEL') {
+        const shortId = record.short_id || '????';
+        await updateCustomer(from, 'closed', 'CANCEL', null, {});
+        await sendSMS(from, `Job #${shortId} has been cancelled. Text us anytime you need help with something around the house.`);
+        await sendSMS(process.env.MY_CELL_NUMBER, `WAITLIST CANCEL - Job #${shortId} - ${from} cancelled while waitlisted.`);
+        console.log(`Waitlisted job #${shortId} cancelled by customer ${from}`);
+        return;
+      }
+      // Any other text — holding message
+      await sendSMS(from, "We're still working on finding a pro for your job. We'll text you as soon as someone's available. Reply CANCEL if you'd like to cancel.");
+      await updateCustomer(from, 'waitlisted', body, "We're still working on finding a pro for your job. We'll text you as soon as someone's available. Reply CANCEL if you'd like to cancel.", {});
+      return;
+    }
+
     // YES/NO handling when customer status is complete
     if (record.status === 'complete' && trimmedBody === 'YES') {
       await handleYes(record, from);

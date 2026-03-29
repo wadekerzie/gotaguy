@@ -2,6 +2,7 @@ const supabase = require('../db/client');
 const { updateCustomer } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { TRADES } = require('../utils/constants');
+const { retryDispatch } = require('./dispatchAgent');
 
 // In-memory cooldown tracker for roster gap alerts
 const lastRosterAlert = {};
@@ -22,10 +23,13 @@ async function runMonitorAgent() {
     // CHECK 4 - Roster coverage by trade
     issuesFound += await checkRosterCoverage();
 
+    // CHECK 5 - Waitlisted job retries
+    issuesFound += await checkWaitlistedJobs();
+
     // Log to monitor_logs
     try {
       await supabase.from('monitor_logs').insert({
-        checks_run: 4,
+        checks_run: 5,
         issues_found: issuesFound,
         details: {},
       });
@@ -209,6 +213,76 @@ async function checkRosterCoverage() {
     }
   } catch (err) {
     console.error('checkRosterCoverage error:', err.message);
+  }
+  return issues;
+}
+
+const MAX_WAITLIST_RETRIES = 6;
+const WAITLIST_RETRY_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+
+async function checkWaitlistedJobs() {
+  let issues = 0;
+  try {
+    const { data: waitlisted, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('status', 'waitlisted');
+
+    if (error) {
+      console.error('Check 5 query error:', error.message);
+      return 0;
+    }
+    if (!waitlisted || waitlisted.length === 0) return 0;
+
+    for (const customer of waitlisted) {
+      const waitlist = (customer.data && customer.data.waitlist) || {};
+      const retryCount = waitlist.retry_count || 0;
+      const lastRetry = waitlist.last_retry_at;
+
+      // Cooldown: 30 minutes since last retry
+      if (lastRetry && (Date.now() - new Date(lastRetry).getTime()) < WAITLIST_RETRY_INTERVAL_MS) {
+        continue;
+      }
+
+      // Also respect cooldown from initial waitlist if no retries yet
+      if (!lastRetry && waitlist.waitlisted_at) {
+        if ((Date.now() - new Date(waitlist.waitlisted_at).getTime()) < WAITLIST_RETRY_INTERVAL_MS) {
+          continue;
+        }
+      }
+
+      const shortId = customer.short_id || '????';
+      const category = (customer.data && customer.data.job && customer.data.job.category) || 'unknown';
+      const address = (customer.data && customer.data.contact && customer.data.contact.address) || '';
+      const zipMatch = address.match(/\b(\d{5})\b/);
+      const zip = zipMatch ? zipMatch[1] : 'unknown';
+
+      // Max retries reached — escalate
+      if (retryCount >= MAX_WAITLIST_RETRIES) {
+        if (!waitlist.escalated_at) {
+          const now = new Date().toISOString();
+          await sendSMS(process.env.MY_CELL_NUMBER, `ESCALATION - Job #${shortId} ${category} in ${zip} - ${retryCount} retries exhausted. Customer: ${customer.phone}. Manual dispatch needed: POST /admin/dispatch/${customer.id}`);
+          await updateCustomer(customer.phone, 'waitlisted', null, null, {
+            waitlist: { ...waitlist, escalated_at: now },
+          });
+          issues++;
+        }
+        continue;
+      }
+
+      // Retry dispatch
+      const result = await retryDispatch(customer);
+
+      if (result.dispatched) {
+        console.log(`Check 5: Job #${shortId} dispatched on retry ${retryCount + 1}`);
+      } else {
+        console.log(`Check 5: Job #${shortId} retry ${result.retryCount || retryCount + 1} - still no match`);
+      }
+
+      issues++;
+    }
+  } catch (err) {
+    console.error('checkWaitlistedJobs error:', err.message);
   }
   return issues;
 }

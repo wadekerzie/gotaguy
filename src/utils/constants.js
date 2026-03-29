@@ -11,7 +11,7 @@ const TRADES = ['electrical', 'plumbing', 'hvac', 'handyman'];
 
 const CUSTOMER_STATUSES = [
   'new', 'scoping', 'quoting', 'scheduling', 'agreed',
-  'dispatched', 'price_locked', 'active', 'complete', 'closed'
+  'waitlisted', 'dispatched', 'price_locked', 'active', 'complete', 'closed'
 ];
 
 const CONTRACTOR_COMMANDS = ['CLAIM', 'ARRIVED', 'DONE'];
