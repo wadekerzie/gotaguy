@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getWorkerByPhone } = require('../db/client');
 const supabase = require('../db/client');
-const { COLLIN_COUNTY_ZIPS, TRADES } = require('../utils/constants');
+const { COLLIN_COUNTY_ZIPS, TRADES, LICENSED_TRADES } = require('../utils/constants');
 
 // Auth middleware
 function requireAdminKey(req, res, next) {
@@ -47,6 +47,7 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
           zip_codes: COLLIN_COUNTY_ZIPS,
           onboarding: {
             tier: 1,
+            license_required: LICENSED_TRADES.includes(trade),
             license_verified: false,
             stripe_express_complete: false,
             jobs_completed: 0,

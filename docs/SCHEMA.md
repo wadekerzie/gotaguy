@@ -95,13 +95,14 @@ Stored in the `workers` table with a JSONB `data` column.
 ```json
 {
   "name": "",
-  "trade": "",
+  "trade": "electrical | plumbing | hvac | handyman | drywall | painting | sprinkler | garage_door | pool | pest_control | landscaping | appliance | fence",
   "license_number": "",
   "license_verified": false,
   "zip_codes": [],
   "stripe_account_id": "",
   "onboarding": {
     "tier": 1,
+    "license_required": false,
     "license_verified": false,
     "stripe_express_complete": false,
     "jobs_completed": 0,
@@ -127,3 +128,11 @@ Stored in the `workers` table with a JSONB `data` column.
 | `checks_run` | INTEGER | Number of checks executed |
 | `issues_found` | INTEGER | Total issues detected |
 | `details` | JSONB | Additional run details |
+
+---
+
+## Constants (src/utils/constants.js)
+
+- **TRADES** (13): electrical, plumbing, hvac, handyman, drywall, painting, sprinkler, garage_door, pool, pest_control, landscaping, appliance, fence
+- **LICENSED_TRADES** (5): electrical, plumbing, hvac, pool, pest_control — TDLR or equivalent verification
+- **TRADE_LABELS**: Human-readable display names for SMS (e.g. `garage_door` → "Garage door repair")

@@ -16,6 +16,7 @@ app.use('/stripe/webhook', stripeRoute);
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+app.use(express.static('public'));
 app.use('/sms', smsRoute);
 app.use('/admin', require('./routes/admin'));
 app.use('/stripe/connect', require('./routes/stripeConnect'));
