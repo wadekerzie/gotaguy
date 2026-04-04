@@ -109,11 +109,19 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         return res.status(200).json({ received: true });
       }
 
-      const now = new Date().toISOString();
+      // Guard: if handleYes already closed this job, skip all side effects.
+      // handleYes is the authoritative capture path. This webhook is a safety
+      // net only - it ensures the DB reflects captured status but never sends
+      // duplicate SMS to customer or contractor.
       const invoice = (customer.data && customer.data.invoice) || {};
-      const payoutAmount = invoice.payout_amount || 0;
+      if (customer.status === 'closed' && invoice.status === 'captured') {
+        console.log(`payment_intent.succeeded: job already closed by handleYes for customer ${customerId} - skipping duplicate actions`);
+        return res.status(200).json({ received: true });
+      }
 
-      // Update invoice
+      // Only reaches here if handleYes did not run (e.g. Stripe auto-capture
+      // or an edge case). Update DB only, no SMS.
+      const now = new Date().toISOString();
       await updateCustomer(customer.phone, 'closed', null, null, {
         invoice: {
           ...invoice,
@@ -122,41 +130,13 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         },
       });
 
-      // Look up contractor
-      const workerId = customer.data && customer.data.schedule && customer.data.schedule.worker_id;
-      let worker = null;
+      // Alert admin so the edge case is visible and can be followed up manually
+      await sendSMS(
+        process.env.MY_CELL_NUMBER,
+        `WEBHOOK CAPTURE - Job closed via Stripe webhook (not handleYes) for customer ${customerId} - $${amount}. Verify payout fired.`
+      );
 
-      if (workerId) {
-        try {
-          worker = await getWorkerById(workerId);
-        } catch (err) {
-          console.error('Failed to look up worker:', err.message);
-        }
-      }
-
-      // Send receipt to customer
-      try {
-        await sendSMS(
-          customer.phone,
-          `Payment of $${amount} confirmed. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`
-        );
-      } catch (err) {
-        console.error('Failed to send receipt SMS:', err.message);
-      }
-
-      // Send payout confirmation to contractor
-      if (worker) {
-        try {
-          await sendSMS(
-            worker.phone,
-            `Job closed. $${payoutAmount} is on its way to your debit card. Nice work.`
-          );
-        } catch (err) {
-          console.error('Failed to send payout SMS:', err.message);
-        }
-      }
-
-      console.log(`Payment captured for ${customer.phone}: $${amount}, payout: $${payoutAmount}`);
+      console.log(`payment_intent.succeeded safety net fired for ${customer.phone}: $${amount}`);
     } catch (err) {
       console.error('Error processing payment_intent.succeeded:', err.message);
     }

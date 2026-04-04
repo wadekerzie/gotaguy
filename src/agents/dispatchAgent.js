@@ -22,7 +22,22 @@ async function dispatchJob(customerRecord) {
 
     if (!zip) {
       console.error('dispatchJob: zip extraction failed for customer', customerRecord.id);
-      await sendSMS(process.env.MY_CELL_NUMBER, `ZIP EXTRACTION FAILED - Job ${customerRecord.id} - Address: ${address} - cannot dispatch.`);
+      await sendSMS(
+        customerRecord.phone,
+        `One quick thing before we find your pro - what's the ZIP code for the job? Just reply with the 5-digit ZIP.`
+      );
+      await sendSMS(
+        process.env.MY_CELL_NUMBER,
+        `ZIP EXTRACTION FAILED - Job ${customerRecord.id} - Address: "${address}" - asked customer to reply with ZIP.`
+      );
+      // Move to scoping so the next reply routes back through the customer agent
+      // which will extract the ZIP from their response and retry dispatch
+      await updateCustomer(customerRecord.phone, 'scoping', null, null, {
+        job: {
+          ...((customerRecord.data && customerRecord.data.job) || {}),
+          needs_zip: true,
+        },
+      });
       return;
     }
 
@@ -100,6 +115,8 @@ async function retryDispatch(customerRecord) {
     if (!zip) {
       console.error('retryDispatch: zip extraction failed for customer', customerRecord.id);
       return { dispatched: false, reason: 'no_zip' };
+      // Note: customer was already asked for ZIP by dispatchJob.
+      // retryDispatch will not reach this point on a healthy job.
     }
 
     const workers = await getActiveWorkersByTradeAndZip(trade, [zip]);
