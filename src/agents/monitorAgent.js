@@ -195,6 +195,8 @@ async function checkStalledPriceLocked() {
 }
 
 async function checkRosterCoverage() {
+  // ROSTER GAP ALERTS DISABLED - re-enable when contractor roster is established
+  /*
   let issues = 0;
   try {
     for (const trade of TRADES) {
@@ -227,6 +229,8 @@ async function checkRosterCoverage() {
     console.error('checkRosterCoverage error:', err.message);
   }
   return issues;
+  */
+  return 0;
 }
 
 const MAX_WAITLIST_RETRIES = 6;
