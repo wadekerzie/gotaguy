@@ -4,8 +4,8 @@ const { sendSMS } = require('../services/twilio');
 const { TRADES } = require('../utils/constants');
 const { retryDispatch } = require('./dispatchAgent');
 
-// In-memory cooldown tracker for roster gap alerts
-const lastRosterAlert = {};
+// In-memory daily dedup tracker for roster gap alerts (one alert per trade per calendar day)
+const rosterGapAlertedToday = {};
 
 async function runMonitorAgent() {
   let issuesFound = 0;
@@ -199,7 +199,7 @@ async function checkStalledPriceLocked() {
 async function checkRosterCoverage() {
   let issues = 0;
   try {
-    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const today = new Date().toDateString();
 
     for (const trade of TRADES) {
       const { count, error } = await supabase
@@ -214,8 +214,8 @@ async function checkRosterCoverage() {
       }
 
       if (count === 0) {
-        // Check cooldown
-        if (lastRosterAlert[trade] && lastRosterAlert[trade] > oneDayAgo) continue;
+        const key = `${trade}-${today}`;
+        if (rosterGapAlertedToday[key]) continue;
 
         try {
           await sendSMS(process.env.MY_CELL_NUMBER, `ROSTER GAP - No active ${trade} contractors in system.`);
@@ -224,7 +224,7 @@ async function checkRosterCoverage() {
           continue;
         }
 
-        lastRosterAlert[trade] = Date.now();
+        rosterGapAlertedToday[key] = true;
         issues++;
       }
     }
