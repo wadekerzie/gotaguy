@@ -8,7 +8,7 @@ const stripeRoute = require('./routes/stripe');
 const { runMonitorAgent } = require('./agents/monitorAgent');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // Stripe webhook needs raw body — mount before bodyParser
 app.use('/stripe/webhook', stripeRoute);
@@ -65,7 +65,7 @@ app.use('/sms', smsRoute);
 app.use('/admin', require('./routes/admin'));
 app.use('/stripe/connect', require('./routes/stripeConnect'));
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`GotaGuy server running on port ${PORT}`);
 });
 
