@@ -4,8 +4,6 @@ const { sendSMS } = require('../services/twilio');
 const { TRADES } = require('../utils/constants');
 const { retryDispatch } = require('./dispatchAgent');
 
-// In-memory daily dedup tracker for roster gap alerts (one alert per trade per calendar day)
-const rosterGapAlertedToday = {};
 
 async function runMonitorAgent() {
   let issuesFound = 0;
@@ -199,13 +197,11 @@ async function checkStalledPriceLocked() {
 async function checkRosterCoverage() {
   let issues = 0;
   try {
-    const today = new Date().toDateString();
-
     for (const trade of TRADES) {
+      // Any record for this trade — any status — means we have someone in the pipeline
       const { count, error } = await supabase
         .from('workers')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
         .eq('data->>trade', trade);
 
       if (error) {
@@ -214,17 +210,13 @@ async function checkRosterCoverage() {
       }
 
       if (count === 0) {
-        const key = `${trade}-${today}`;
-        if (rosterGapAlertedToday[key]) continue;
-
         try {
-          await sendSMS(process.env.MY_CELL_NUMBER, `ROSTER GAP - No active ${trade} contractors in system.`);
+          await sendSMS(process.env.MY_CELL_NUMBER, `ROSTER GAP - No ${trade} contractors in system at all.`);
         } catch (err) {
           console.error(`Failed to send roster gap alert for ${trade}:`, err.message);
           continue;
         }
 
-        rosterGapAlertedToday[key] = true;
         issues++;
       }
     }
