@@ -54,6 +54,8 @@ const CUSTOMER_STATUSES = [
 
 const CONTRACTOR_COMMANDS = ['CLAIM', 'ARRIVED', 'DONE'];
 
+const SUPPORTED_LANGUAGES = ['en', 'es'];
+
 const PLATFORM_NAME = 'GotaGuy';
 
 module.exports = {
@@ -63,5 +65,6 @@ module.exports = {
   TRADE_LABELS,
   CUSTOMER_STATUSES,
   CONTRACTOR_COMMANDS,
+  SUPPORTED_LANGUAGES,
   PLATFORM_NAME,
 };

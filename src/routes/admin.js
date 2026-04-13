@@ -81,6 +81,45 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
   }
 });
 
+// Deactivate a contractor
+router.post('/contractors/:id/deactivate', requireAdminKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: worker, error: fetchErr } = await supabase
+      .from('workers')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !worker) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+
+    const now = new Date().toISOString();
+    const history = (worker.data && worker.data.history) || [];
+    history.push({ ts: now, agent: 'admin', action: 'deactivated by admin' });
+
+    await supabase
+      .from('workers')
+      .update({ status: 'inactive', data: { ...worker.data, history } })
+      .eq('id', id);
+
+    try {
+      const { sendSMS } = require('../services/twilio');
+      await sendSMS(worker.phone, 'Your GotaGuy account has been deactivated. Contact wade@kerzie.ai if you have questions.');
+    } catch (err) {
+      console.error('Failed to send deactivation SMS:', err.message);
+    }
+
+    console.log(`Admin deactivated worker ${id} (${worker.phone})`);
+    return res.status(200).json({ success: true, worker_id: id, status: 'inactive' });
+  } catch (err) {
+    console.error('Admin deactivation error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Manual dispatch override for waitlisted jobs
 router.post('/dispatch/:customerId', requireAdminKey, async (req, res) => {
   try {

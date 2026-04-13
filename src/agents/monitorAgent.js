@@ -26,10 +26,16 @@ async function runMonitorAgent() {
     // CHECK 5 - Waitlisted job retries
     issuesFound += await checkWaitlistedJobs();
 
+    // CHECK 6 - Pending Stripe 24-hour follow-up
+    issuesFound += await checkPendingStripeFollowup();
+
+    // CHECK 7 - 30-day closed job follow-up
+    issuesFound += await checkThirtyDayFollowup();
+
     // Log to monitor_logs
     try {
       await supabase.from('monitor_logs').insert({
-        checks_run: 5,
+        checks_run: 7,
         issues_found: issuesFound,
         details: {},
       });
@@ -123,8 +129,19 @@ async function checkUnclaimedJobs() {
         continue;
       }
 
+      // Send holding SMS to homeowner (once per job)
+      const waitlist = (job.data && job.data.waitlist) || {};
+      if (!waitlist.homeowner_notified) {
+        try {
+          await sendSMS(job.phone, "Still working on confirming your pro. We'll have someone locked in shortly. Reply CANCEL if you'd like to cancel.");
+        } catch (err) {
+          console.error('Failed to send homeowner holding SMS:', err.message);
+        }
+      }
+
       await updateCustomer(job.phone, job.status, null, null, {
         last_dispatch_alert_at: new Date().toISOString(),
+        waitlist: { ...waitlist, homeowner_notified: true },
       });
 
       issues++;
@@ -283,6 +300,115 @@ async function checkWaitlistedJobs() {
     }
   } catch (err) {
     console.error('checkWaitlistedJobs error:', err.message);
+  }
+  return issues;
+}
+
+async function checkPendingStripeFollowup() {
+  let issues = 0;
+  try {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: pending, error } = await supabase
+      .from('workers')
+      .select('*')
+      .eq('status', 'pending_stripe')
+      .lt('created_at', twentyFourHoursAgo);
+
+    if (error) {
+      console.error('Check 6 query error:', error.message);
+      return 0;
+    }
+    if (!pending || pending.length === 0) return 0;
+
+    const { getStripe } = require('../services/stripe');
+    const stripe = getStripe();
+
+    for (const worker of pending) {
+      const onboarding = (worker.data && worker.data.onboarding) || {};
+      if (onboarding.followup_sent) continue;
+
+      const stripeAccountId = worker.data && worker.data.stripe_account_id;
+      if (!stripeAccountId) continue;
+
+      // Generate a fresh onboarding link
+      let link;
+      try {
+        const accountLink = await stripe.accountLinks.create({
+          account: stripeAccountId,
+          refresh_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/refresh?account_id=' + stripeAccountId,
+          return_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/return?account_id=' + stripeAccountId,
+          type: 'account_onboarding',
+        });
+        link = accountLink.url;
+      } catch (err) {
+        console.error(`Failed to generate Stripe link for worker ${worker.id}:`, err.message);
+        continue;
+      }
+
+      try {
+        await sendSMS(worker.phone, `Hey, looks like your GotaGuy setup isn't quite complete. Finish here: ${link}. Takes 5 minutes and you'll start receiving jobs immediately.`);
+      } catch (err) {
+        console.error('Failed to send Stripe followup SMS:', err.message);
+        continue;
+      }
+
+      // Mark followup_sent to prevent duplicates
+      await supabase
+        .from('workers')
+        .update({
+          data: {
+            ...worker.data,
+            onboarding: { ...onboarding, followup_sent: true },
+          },
+        })
+        .eq('id', worker.id);
+
+      issues++;
+    }
+  } catch (err) {
+    console.error('checkPendingStripeFollowup error:', err.message);
+  }
+  return issues;
+}
+
+async function checkThirtyDayFollowup() {
+  let issues = 0;
+  try {
+    const twentyNineDaysAgo = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString();
+    const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: closed, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('status', 'closed')
+      .gte('updated_at', thirtyOneDaysAgo)
+      .lte('updated_at', twentyNineDaysAgo);
+
+    if (error) {
+      console.error('Check 7 query error:', error.message);
+      return 0;
+    }
+    if (!closed || closed.length === 0) return 0;
+
+    for (const customer of closed) {
+      const invoice = (customer.data && customer.data.invoice) || {};
+      if (invoice.followup_sent) continue;
+
+      try {
+        await sendSMS(customer.phone, "Hey, it's GotaGuy. Hope everything is still holding up from your repair last month. Anything else need attention around the house? Just text us.");
+      } catch (err) {
+        console.error('Failed to send 30-day followup SMS:', err.message);
+        continue;
+      }
+
+      await updateCustomer(customer.phone, 'closed', null, null, {
+        invoice: { ...invoice, followup_sent: true },
+      });
+
+      issues++;
+    }
+  } catch (err) {
+    console.error('checkThirtyDayFollowup error:', err.message);
   }
   return issues;
 }

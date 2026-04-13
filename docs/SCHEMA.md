@@ -85,7 +85,7 @@ Stored in the `workers` table with a JSONB `data` column.
 |--------|------|-------|
 | `id` | UUID | Primary key, auto-generated |
 | `phone` | TEXT | E.164 format, unique |
-| `status` | TEXT | One of: `lead`, `pending_stripe`, `active`, `inactive` |
+| `status` | TEXT | One of: `lead`, `pending_stripe`, `active`, `busy`, `inactive` |
 | `data` | JSONB | See structure below |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
 | `updated_at` | TIMESTAMPTZ | Auto-updated via trigger on every row change |
@@ -100,6 +100,7 @@ Stored in the `workers` table with a JSONB `data` column.
   "license_verified": false,
   "zip_codes": [],
   "stripe_account_id": "",
+  "language_preference": "en | es (defaults to en)",
   "onboarding": {
     "tier": 1,
     "license_required": false,

@@ -153,6 +153,7 @@ async function updateWorker(phone, status, newMessageIn, newMessageOut, addition
 
 async function getActiveWorkersByTradeAndZip(trade, zipCodes) {
   try {
+    // Only returns active workers — workers with status 'busy' are excluded
     const { data, error } = await supabase
       .from('workers')
       .select('*')

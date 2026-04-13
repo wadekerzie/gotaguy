@@ -63,10 +63,18 @@ async function welcomeContractor(workerRecord) {
     await sendSMS(process.env.MY_CELL_NUMBER, `STRIPE ERROR - could not generate Express link for ${name} ${workerRecord.phone}`);
   }
 
+  // Language preference question
+  await delay(3000);
+  try {
+    await sendSMS(workerRecord.phone, 'One quick question - what language do you prefer for job notifications? Reply EN for English or ES for Spanish.');
+  } catch (err) {
+    console.error('Failed to send language preference SMS:', err.message);
+  }
+
   // Append to worker history
   try {
     await updateWorker(workerRecord.phone, workerRecord.status, null, null, {
-      history: [{ ts: new Date().toISOString(), agent: 'welcomeContractor', action: 'welcome SMS sent, Stripe Express link generated' }],
+      history: [{ ts: new Date().toISOString(), agent: 'welcomeContractor', action: 'welcome SMS sent, Stripe Express link generated, language preference asked' }],
     });
   } catch (err) {
     console.error('Failed to update worker history:', err.message);

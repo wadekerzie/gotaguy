@@ -1,5 +1,6 @@
 const { getActiveWorkersByTradeAndZip, updateCustomer } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
+const { translateForWorker } = require('../services/translate');
 
 async function dispatchJob(customerRecord) {
   try {
@@ -75,10 +76,11 @@ async function dispatchJob(customerRecord) {
     const shortId = customerRecord.short_id || '????';
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.\nReply CLAIM ${shortId} to take it`;
 
       try {
-        await sendSMS(worker.phone, jobCard);
+        const localizedCard = await translateForWorker(jobCard, worker);
+        await sendSMS(worker.phone, localizedCard);
       } catch (err) {
         console.error(`Failed to send job card to worker ${worker.phone}:`, err.message);
       }
@@ -148,10 +150,11 @@ async function retryDispatch(customerRecord) {
     const shortId = customerRecord.short_id || '????';
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.\nReply CLAIM ${shortId} to take it`;
 
       try {
-        await sendSMS(worker.phone, jobCard);
+        const localizedCard = await translateForWorker(jobCard, worker);
+        await sendSMS(worker.phone, localizedCard);
       } catch (err) {
         console.error(`Failed to send job card to worker ${worker.phone}:`, err.message);
       }

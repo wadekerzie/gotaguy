@@ -3,6 +3,7 @@ const supabase = require('../db/client');
 const { updateCustomer, updateWorker } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { createPaymentLink } = require('../services/stripe');
+const { translateForWorker } = require('../services/translate');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -24,20 +25,23 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
     return await handleFreeText(workerRecord, customerRecord, inboundText);
   } catch (err) {
     console.error('contractorAgent error:', err.message);
-    await sendSMS(workerRecord.phone, "Something went wrong on our end. Try again or text " + process.env.MY_CELL_NUMBER + " for help.").catch(() => {});
+    const errMsg = await translateForWorker("Something went wrong on our end. Try again or text " + process.env.MY_CELL_NUMBER + " for help.", workerRecord);
+    await sendSMS(workerRecord.phone, errMsg).catch(() => {});
     return { reply: null, action: 'error' };
   }
 }
 
 async function handleClaim(workerRecord, customerRecord) {
   if (!customerRecord) {
-    await sendSMS(workerRecord.phone, "We don't see an open job to claim right now. Text us if you need help.");
+    const msg = await translateForWorker("We don't see an open job to claim right now. Text us if you need help.", workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'no_job' };
   }
 
   // Check if already claimed
   if (customerRecord.data && customerRecord.data.schedule && customerRecord.data.schedule.worker_id) {
-    await sendSMS(workerRecord.phone, "Sorry - that job was just claimed by someone else.");
+    const msg = await translateForWorker("Sorry - that job was just claimed by someone else.", workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'already_claimed' };
   }
 
@@ -66,7 +70,8 @@ async function handleClaim(workerRecord, customerRecord) {
     .single();
 
   if (lockErr || !locked) {
-    await sendSMS(workerRecord.phone, "Sorry - that job was just claimed by someone else.");
+    const msg = await translateForWorker("Sorry - that job was just claimed by someone else.", workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'race_lost' };
   }
 
@@ -80,7 +85,8 @@ async function handleClaim(workerRecord, customerRecord) {
   const jobId = customerRecord.short_id || '????';
 
   // Send to worker
-  await sendSMS(workerRecord.phone, `Job #${jobId} is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED ${jobId} when you get there.`);
+  const claimMsg = await translateForWorker(`Job #${jobId} is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED ${jobId} when you get there.`, workerRecord);
+  await sendSMS(workerRecord.phone, claimMsg);
 
   // Send to customer (non-blocking — don't fail the claim if customer SMS fails)
   try {
@@ -97,7 +103,8 @@ async function handleClaim(workerRecord, customerRecord) {
 
 async function handleArrived(workerRecord, customerRecord) {
   if (!customerRecord || customerRecord.status !== 'active') {
-    await sendSMS(workerRecord.phone, `Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`);
+    const msg = await translateForWorker(`Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`, workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'invalid_state' };
   }
 
@@ -109,7 +116,8 @@ async function handleArrived(workerRecord, customerRecord) {
   // Send address confirmation to contractor
   const address = (customerRecord.data.contact && customerRecord.data.contact.address) || 'Address not provided';
   const jobId = customerRecord.short_id || '????';
-  await sendSMS(workerRecord.phone, `Job #${jobId} confirmed. Head to ${address}. Text DONE ${jobId} when the work is complete.`);
+  const arrivedMsg = await translateForWorker(`Job #${jobId} confirmed. Head to ${address}. Text DONE ${jobId} when the work is complete.`, workerRecord);
+  await sendSMS(workerRecord.phone, arrivedMsg);
 
   // Generate Stripe payment link
   let paymentUrl;
@@ -117,7 +125,8 @@ async function handleArrived(workerRecord, customerRecord) {
     paymentUrl = await createPaymentLink(customerRecord);
   } catch (err) {
     console.error('Failed to create payment link:', err.message);
-    await sendSMS(workerRecord.phone, "We hit a snag creating the payment link. Give us a sec - texting the team now.");
+    const errMsg = await translateForWorker("We hit a snag creating the payment link. Give us a sec - texting the team now.", workerRecord);
+    await sendSMS(workerRecord.phone, errMsg);
     await sendSMS(process.env.MY_CELL_NUMBER, `Payment link failed for job ${customerRecord.id}: ${err.message}`);
     return { reply: null, action: 'payment_link_error' };
   }
@@ -137,13 +146,15 @@ async function handleArrived(workerRecord, customerRecord) {
 
 async function handleDone(workerRecord, customerRecord) {
   if (!customerRecord || (customerRecord.status !== 'price_locked' && customerRecord.status !== 'active')) {
-    await sendSMS(workerRecord.phone, `Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`);
+    const msg = await translateForWorker(`Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`, workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'invalid_state' };
   }
 
   const invoice = (customerRecord.data && customerRecord.data.invoice) || {};
   if (!invoice.confirmed_price) {
-    await sendSMS(workerRecord.phone, "Heads up - the customer hasn't locked in a price yet. Give them a moment or have them check their texts.");
+    const msg = await translateForWorker("Heads up - the customer hasn't locked in a price yet. Give them a moment or have them check their texts.", workerRecord);
+    await sendSMS(workerRecord.phone, msg);
     return { reply: null, action: 'price_not_locked' };
   }
 
@@ -156,7 +167,8 @@ async function handleDone(workerRecord, customerRecord) {
   await updateCustomer(customerRecord.phone, 'complete', null, null, {});
 
   // Send to contractor
-  await sendSMS(workerRecord.phone, `Job #${jobId} marked complete. Waiting on customer to confirm.`);
+  const doneMsg = await translateForWorker(`Job #${jobId} marked complete. Waiting on customer to confirm.`, workerRecord);
+  await sendSMS(workerRecord.phone, doneMsg);
 
   // Send to customer
   try {
@@ -202,7 +214,8 @@ Set flag to "human" if you cannot resolve it.`;
   const jsonMatch = responseText.match(/\{[^{}]*"reply"[^{}]*\}/);
 
   if (!jsonMatch) {
-    await sendSMS(workerRecord.phone, "Got it - let me check on that. Text " + process.env.MY_CELL_NUMBER + " if you need immediate help.");
+    const fallbackMsg = await translateForWorker("Got it - let me check on that. Text " + process.env.MY_CELL_NUMBER + " if you need immediate help.", workerRecord);
+    await sendSMS(workerRecord.phone, fallbackMsg);
     return { reply: null, action: 'parse_error' };
   }
 
@@ -210,9 +223,11 @@ Set flag to "human" if you cannot resolve it.`;
 
   if (parsed.flag === 'human') {
     await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR EXCEPTION - ${workerRecord.phone}: ${inboundText}`);
-    await sendSMS(workerRecord.phone, parsed.reply);
+    const localizedReply = await translateForWorker(parsed.reply, workerRecord);
+    await sendSMS(workerRecord.phone, localizedReply);
   } else {
-    await sendSMS(workerRecord.phone, parsed.reply);
+    const localizedReply = await translateForWorker(parsed.reply, workerRecord);
+    await sendSMS(workerRecord.phone, localizedReply);
   }
 
   return { reply: parsed.reply, action: 'ai_response', flag: parsed.flag };

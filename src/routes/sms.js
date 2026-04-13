@@ -10,6 +10,7 @@ const { dispatchJob } = require('../agents/dispatchAgent');
 const { getStripe } = require('../services/stripe');
 const { calculateFee } = require('../utils/fees');
 const { classifyContact } = require('../utils/classifier');
+const { translateForWorker } = require('../services/translate');
 const supabase = require('../db/client');
 
 // Twilio signature validation middleware
@@ -154,6 +155,37 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // --- Worker flow ---
     if (type === 'worker') {
+      // Language preference during onboarding (pending_stripe status)
+      if (record.status === 'pending_stripe' && (trimmedBody === 'EN' || trimmedBody === 'ES' || trimmedBody === 'LISTO')) {
+        if (trimmedBody === 'EN') {
+          await updateWorker(from, record.status, body, 'Got it - we will text you in English.', { language_preference: 'en' });
+          await sendSMS(from, 'Got it - we will text you in English.');
+          return;
+        }
+        if (trimmedBody === 'ES') {
+          await updateWorker(from, record.status, body, 'Perfecto. Te enviaremos los trabajos en español. Nota importante: todos nuestros clientes hablan inglés. Es necesario que alguien en tu equipo pueda comunicarse en inglés en el trabajo. Reply LISTO when you understand.', { language_preference: 'es' });
+          await sendSMS(from, 'Perfecto. Te enviaremos los trabajos en español. Nota importante: todos nuestros clientes hablan inglés. Es necesario que alguien en tu equipo pueda comunicarse en inglés en el trabajo. Reply LISTO when you understand.');
+          return;
+        }
+        if (trimmedBody === 'LISTO') {
+          await updateWorker(from, record.status, body, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.', {});
+          await sendSMS(from, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.');
+          return;
+        }
+      }
+
+      // BUSY/AVAILABLE toggle
+      if (trimmedBody === 'BUSY') {
+        await updateWorker(from, 'busy', body, "Got it, you won't receive job cards until you text AVAILABLE.", {});
+        await sendSMS(from, "Got it, you won't receive job cards until you text AVAILABLE.");
+        return;
+      }
+      if (trimmedBody === 'AVAILABLE') {
+        await updateWorker(from, 'active', body, "You're back on. Job cards will resume immediately.", {});
+        await sendSMS(from, "You're back on. Job cards will resume immediately.");
+        return;
+      }
+
       // Parse command + optional job ID (e.g. "CLAIM 4821", "ARRIVED", "DONE 3190")
       const commandMatch = trimmedBody.match(/^(CLAIM|ARRIVED|DONE)(?:\s+(\d{4}))?$/);
       const commandKeyword = commandMatch ? commandMatch[1] : null;
@@ -254,11 +286,16 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     // Normal customer agent flow
     const { reply, newStatus, flag } = await runCustomerAgent(record, body, mediaUrl);
 
+    // Append TOS notice on very first outbound SMS to a new homeowner
+    const isFirstMessage = !record.data.comms || record.data.comms.length === 0;
+    const tosNotice = '\n\nBy texting GotaGuy you agree to our terms at gotaguymckinney.com/terms.';
+
     if (flag === 'human') {
       await sendSMS(process.env.MY_CELL_NUMBER, `EXCEPTION - ${from}: ${body}`);
-      await sendSMS(from, "You've been connected with our team. Someone will text you shortly.");
+      const humanMsg = "You've been connected with our team. Someone will text you shortly.";
+      await sendSMS(from, isFirstMessage ? humanMsg + tosNotice : humanMsg);
     } else {
-      await sendSMS(from, reply);
+      await sendSMS(from, isFirstMessage ? reply + tosNotice : reply);
     }
 
     const additionalData = {};
@@ -364,10 +401,20 @@ async function handleYes(customerRecord, from) {
       console.error('Failed to send receipt SMS:', err.message);
     }
 
+    // Send Google review request to customer
+    if (process.env.GOOGLE_REVIEW_LINK) {
+      try {
+        await sendSMS(from, `Happy to hear it. If you have 60 seconds, a Google review helps us bring more great pros to McKinney: ${process.env.GOOGLE_REVIEW_LINK}. Thanks for using GotaGuy.`);
+      } catch (err) {
+        console.error('Failed to send Google review SMS:', err.message);
+      }
+    }
+
     // Send payout confirmation to contractor
     if (worker) {
       try {
-        await sendSMS(worker.phone, `Job #${jobId} closed. $${payoutAmount} is on its way to your debit card. Nice work.`);
+        const payoutMsg = await translateForWorker(`Job #${jobId} closed. $${payoutAmount} is on its way to your debit card. Nice work.`, worker);
+        await sendSMS(worker.phone, payoutMsg);
       } catch (err) {
         console.error('Failed to send payout SMS:', err.message);
       }

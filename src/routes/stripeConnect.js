@@ -51,7 +51,7 @@ router.get('/return', async (req, res) => {
     try {
       await sendSMS(
         worker.phone,
-        `You're all set ${firstName}. When a job comes in matching your area you'll get a text like this:\n\n${trade} repair - McKinney 75069\nWindow: Tue 4-7pm - Your take: $140-160\nReply CLAIM to take it\n\nThat's it. We'll be in touch.`
+        `You're all set ${firstName}. When a job comes in matching your area you'll get a text like this:\n\n${trade} repair - McKinney 75069\nWindow: Tue 4-7pm\nReply CLAIM to take it\n\nThat's it. We'll be in touch.`
       );
     } catch (err) {
       console.error('Failed to send onboarding complete SMS:', err.message);
