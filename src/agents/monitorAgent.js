@@ -199,10 +199,13 @@ async function checkRosterCoverage() {
   try {
     for (const trade of TRADES) {
       // Any record for this trade — any status — means we have someone in the pipeline
+      console.log(`[checkRosterCoverage] querying trade: ${trade}`);
       const { count, error } = await supabase
         .from('workers')
         .select('*', { count: 'exact', head: true })
         .eq('data->>trade', trade);
+
+      console.log(`[checkRosterCoverage] trade: ${trade} | count: ${count} | error: ${error ? error.message : 'none'}`);
 
       if (error) {
         console.error(`Roster check error for ${trade}:`, error.message);
