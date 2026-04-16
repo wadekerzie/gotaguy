@@ -25,29 +25,45 @@ async function welcomeContractor(workerRecord) {
   try {
     const stripe = getStripe();
 
-    const account = await stripe.accounts.create({
-      type: 'express',
-      capabilities: {
-        transfers: { requested: true },
-      },
-    });
-    accountId = account.id;
+    console.log(`[welcomeContractor] Creating Stripe Express account for ${workerRecord.phone}`);
+    let account;
+    try {
+      account = await stripe.accounts.create({
+        type: 'express',
+        capabilities: {
+          transfers: { requested: true },
+        },
+      });
+      accountId = account.id;
+      console.log(`[welcomeContractor] Stripe Express account created: ${accountId}`);
+    } catch (err) {
+      console.error(`[welcomeContractor] stripe.accounts.create failed for ${workerRecord.phone} - code: ${err.code} type: ${err.type} message: ${err.message}`, err);
+      throw err;
+    }
 
     // Store stripe_account_id on worker record immediately
     await updateWorker(workerRecord.phone, workerRecord.status, null, null, {
       stripe_account_id: accountId,
     });
 
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/refresh?account_id=' + accountId,
-      return_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/return?account_id=' + accountId,
-      type: 'account_onboarding',
-    });
+    console.log(`[welcomeContractor] Creating account link for ${accountId}`);
+    let accountLink;
+    try {
+      accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/refresh?account_id=' + accountId,
+        return_url: process.env.RAILWAY_DOMAIN + '/stripe/connect/return?account_id=' + accountId,
+        type: 'account_onboarding',
+      });
+      console.log(`[welcomeContractor] Account link created successfully for ${accountId}`);
+    } catch (err) {
+      console.error(`[welcomeContractor] stripe.accountLinks.create failed for ${accountId} - code: ${err.code} type: ${err.type} message: ${err.message}`, err);
+      throw err;
+    }
 
     stripeUrl = accountLink.url;
   } catch (err) {
-    console.error('Stripe Express account creation error:', err.message);
+    console.error(`[welcomeContractor] Stripe setup failed for ${workerRecord.phone} - ${err.message}`);
   }
 
   // 3-second delay between messages
