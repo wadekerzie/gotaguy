@@ -42,9 +42,24 @@ async function updateCustomer(phone, status, newMessageIn, newMessageOut, additi
       data.history.push({ ts: now, agent: 'customerAgent', action: `status changed to ${status}` });
     }
 
-    // Merge additional data
+    // Merge additional data — deep merge plain objects so nested fields
+    // (e.g. job.quoted_price_low) survive across turns that only update
+    // a subset of keys. Arrays and primitives replace outright.
     if (additionalData && Object.keys(additionalData).length > 0) {
-      Object.assign(data, additionalData);
+      for (const [key, value] of Object.entries(additionalData)) {
+        if (
+          value !== null &&
+          typeof value === 'object' &&
+          !Array.isArray(value) &&
+          data[key] !== null &&
+          typeof data[key] === 'object' &&
+          !Array.isArray(data[key])
+        ) {
+          data[key] = { ...data[key], ...value };
+        } else {
+          data[key] = value;
+        }
+      }
     }
 
     // Update the record
