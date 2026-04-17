@@ -326,8 +326,34 @@ async function checkPendingStripeFollowup() {
       const onboarding = (worker.data && worker.data.onboarding) || {};
       if (onboarding.followup_sent) continue;
 
-      const stripeAccountId = worker.data && worker.data.stripe_account_id;
-      if (!stripeAccountId) continue;
+      let stripeAccountId = worker.data && worker.data.stripe_account_id;
+
+      // If no Stripe account exists yet, create one now (mirrors welcomeContractor.js)
+      if (!stripeAccountId) {
+        console.log(`[checkPendingStripeFollowup] No stripe_account_id for worker ${worker.id} (${worker.phone}) - creating Express account`);
+        try {
+          const account = await stripe.accounts.create({
+            type: 'express',
+            capabilities: {
+              transfers: { requested: true },
+            },
+          });
+          stripeAccountId = account.id;
+          console.log(`[checkPendingStripeFollowup] Created Stripe Express account ${stripeAccountId} for worker ${worker.id}`);
+
+          // Save stripe_account_id back to worker record
+          await supabase
+            .from('workers')
+            .update({
+              data: { ...worker.data, stripe_account_id: stripeAccountId },
+            })
+            .eq('id', worker.id);
+          console.log(`[checkPendingStripeFollowup] Saved stripe_account_id to worker ${worker.id}`);
+        } catch (err) {
+          console.error(`[checkPendingStripeFollowup] stripe.accounts.create failed for worker ${worker.id} - code: ${err.code} type: ${err.type} message: ${err.message}`);
+          continue;
+        }
+      }
 
       // Generate a fresh onboarding link
       let link;
