@@ -165,7 +165,7 @@ async function getActiveWorkersByTradeAndZip(trade, zipCodes) {
     return data.filter(worker => {
       const workerTrade = worker.data && worker.data.trade;
       const workerZips = (worker.data && worker.data.zip_codes) || [];
-      const tradeMatch = workerTrade && workerTrade.toLowerCase() === trade.toLowerCase();
+      const tradeMatch = workerTrade && (workerTrade.toLowerCase() === 'general' || workerTrade.toLowerCase() === trade.toLowerCase());
       const zipMatch = zipCodes.some(zip => workerZips.includes(zip));
       return tradeMatch && zipMatch;
     });
