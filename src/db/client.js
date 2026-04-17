@@ -162,11 +162,13 @@ async function getActiveWorkersByTradeAndZip(trade, zipCodes) {
     if (error) throw new Error(`getActiveWorkersByTradeAndZip error: ${error.message}`);
     if (!data) return [];
 
+    console.log(`[dispatch match] job trade: "${trade}" | zip(s): ${zipCodes.join(',')} | active workers: ${data.length}`);
     return data.filter(worker => {
       const workerTrade = worker.data && worker.data.trade;
       const workerZips = (worker.data && worker.data.zip_codes) || [];
       const tradeMatch = workerTrade && (workerTrade.toLowerCase() === 'general' || workerTrade.toLowerCase() === trade.toLowerCase());
       const zipMatch = zipCodes.some(zip => workerZips.includes(zip));
+      console.log(`  worker ${worker.id} trade: "${workerTrade}" zips: [${workerZips.join(',')}] tradeMatch: ${tradeMatch} zipMatch: ${zipMatch}`);
       return tradeMatch && zipMatch;
     });
   } catch (err) {
