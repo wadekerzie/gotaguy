@@ -10,7 +10,7 @@
 | **Railway** | Always-on server needed for cron jobs and pg_notify listeners |
 | **Stripe Connect** | Marketplace payments, instant contractor payout, 1099 handling |
 | **One Twilio number** | AI routes by whether inbound number is in customers or workers table |
-| **Fee structure** | 10% of job value, minimum $25, maximum $100. Contractor pitch: "We take 10% - minimum $25, never more than $100." |
+| **Fee structure** | 10% of job value, minimum $25, maximum $250. Contractor pitch: "We take 10% - minimum $25, never more than $250." |
 | **Repair only** | One trade, one visit, parts from supply house, under $800. 13 trades supported. |
 | **Licensed trades** | electrical, plumbing, hvac, pool, pest_control — TDLR or equivalent verification available. All other trades rely on personal vetting by Wade. |
 | **Landscaping scope** | Landscaping is in scope for discrete one-visit jobs only — seasonal cleanup, small removals, sod repair. Recurring lawn care is explicitly out of scope. |

@@ -26,5 +26,5 @@ GotaGuy is an SMS-first home repair marketplace serving Collin County, TX. There
 ## Fee Structure
 
 - 10% of job value
-- Minimum fee: $15
-- Maximum fee: $150
+- Minimum fee: $25
+- Maximum fee: $250
