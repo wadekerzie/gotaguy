@@ -136,26 +136,33 @@ async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
       });
     }
 
+    // Re-inject the most recently stored photo for visual context on text-only turns
+    const storedPhotos = (customerRecord.data && customerRecord.data.photos) || [];
+    const mostRecentPhoto = storedPhotos.length > 0 ? storedPhotos[storedPhotos.length - 1] : null;
+
     // Add the current inbound message
     if (mediaUrl) {
+      // New photo this turn — use it directly
       const content = [];
-      if (inboundText) {
-        content.push({ type: 'text', text: inboundText });
-      }
-      content.push({
-        type: 'image',
-        source: { type: 'url', url: mediaUrl },
-      });
+      if (inboundText) content.push({ type: 'text', text: inboundText });
+      content.push({ type: 'image', source: { type: 'url', url: mediaUrl } });
+      messages.push({ role: 'user', content });
+    } else if (mostRecentPhoto) {
+      // No new photo — re-attach the stored one so Claude retains visual context
+      const content = [];
+      if (inboundText) content.push({ type: 'text', text: inboundText });
+      content.push({ type: 'image', source: { type: 'url', url: mostRecentPhoto.url } });
       messages.push({ role: 'user', content });
     } else {
-      messages.push({
-        role: 'user',
-        content: inboundText || '(photo sent with no text)',
-      });
+      messages.push({ role: 'user', content: inboundText || '(photo sent with no text)' });
     }
 
     // Build system prompt with current customer object
-    const systemWithContext = SYSTEM_PROMPT + `\n\nCurrent customer object:\n${JSON.stringify(customerRecord)}`;
+    // Code guard: suppress photo ask if one has already been received
+    const photoGuard = storedPhotos.length > 0
+      ? '\n\nA photo has already been received from this customer. Do NOT ask for another photo.'
+      : '';
+    const systemWithContext = SYSTEM_PROMPT + photoGuard + `\n\nCurrent customer object:\n${JSON.stringify(customerRecord)}`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',

@@ -283,8 +283,14 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
+    // Download and permanently store any inbound photo before passing to agent
+    let permanentMediaUrl = null;
+    if (mediaUrl) {
+      permanentMediaUrl = await storePhoto(mediaUrl, from);
+    }
+
     // Normal customer agent flow
-    const { reply, newStatus, trade, flag } = await runCustomerAgent(record, body, mediaUrl);
+    const { reply, newStatus, trade, flag } = await runCustomerAgent(record, body, permanentMediaUrl);
 
     // Append TOS notice on very first outbound SMS to a new homeowner
     const isFirstMessage = !record.data.comms || record.data.comms.length === 0;
@@ -299,9 +305,9 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     const additionalData = {};
-    if (mediaUrl) {
+    if (permanentMediaUrl) {
       const photos = (record.data && record.data.photos) || [];
-      photos.push({ ts: new Date().toISOString(), url: mediaUrl, type: mediaType });
+      photos.push({ ts: new Date().toISOString(), url: permanentMediaUrl, type: mediaType });
       additionalData.photos = photos;
     }
 
@@ -459,6 +465,27 @@ async function handleNo(customerRecord, from) {
     console.log(`Dispute flagged for ${from}: $${confirmedPrice}`);
   } catch (err) {
     console.error('handleNo error:', err.message);
+  }
+}
+
+async function storePhoto(twilioUrl, phone) {
+  try {
+    const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const res = await fetch(twilioUrl, { headers: { Authorization: `Basic ${auth}` } });
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    const buffer = await res.arrayBuffer();
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const ext = (contentType.split('/')[1] || 'jpg').split(';')[0];
+    const filename = `${phone.replace('+', '')}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from('job-photos')
+      .upload(filename, Buffer.from(buffer), { contentType, upsert: false });
+    if (error) throw error;
+    const { data } = supabase.storage.from('job-photos').getPublicUrl(filename);
+    return data.publicUrl;
+  } catch (err) {
+    console.error('storePhoto error:', err.message);
+    return twilioUrl;
   }
 }
 

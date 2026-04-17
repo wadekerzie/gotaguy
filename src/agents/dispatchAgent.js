@@ -74,9 +74,11 @@ async function dispatchJob(customerRecord) {
     const city = cityMatch ? cityMatch[1].trim() : '';
 
     const shortId = customerRecord.short_id || '????';
+    const photos = data.photos || [];
+    const latestPhoto = photos.length > 0 ? photos[photos.length - 1].url : null;
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.${latestPhoto ? '\nPhoto: ' + latestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);
@@ -148,9 +150,11 @@ async function retryDispatch(customerRecord) {
     const cityMatch = address.match(/([A-Za-z\s]+),?\s*[A-Z]{2}\s*\d{5}/);
     const city = cityMatch ? cityMatch[1].trim() : '';
     const shortId = customerRecord.short_id || '????';
+    const retryPhotos = data.photos || [];
+    const retryLatestPhoto = retryPhotos.length > 0 ? retryPhotos[retryPhotos.length - 1].url : null;
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nWindow: ${window}\nQuoted: $${priceLow}-$${priceHigh}\nNote: English communication required on site.${retryLatestPhoto ? '\nPhoto: ' + retryLatestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);
