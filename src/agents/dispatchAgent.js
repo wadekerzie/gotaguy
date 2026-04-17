@@ -22,26 +22,8 @@ async function dispatchJob(customerRecord) {
     const zip = zipMatch ? zipMatch[1] : null;
 
     if (!zip) {
-      console.error('dispatchJob: zip extraction failed for customer', customerRecord.id);
-      // If we already asked once, escalate rather than creating an infinite loop
-      if (job.needs_zip) {
-        await sendSMS(process.env.MY_CELL_NUMBER, `ZIP LOOP - Job ${customerRecord.id} - Address: "${address}" - already asked customer for ZIP, escalating.`);
-        return;
-      }
-      await sendSMS(
-        customerRecord.phone,
-        `One quick thing before we find your pro - what's the ZIP code for the job? Just reply with the 5-digit ZIP.`
-      );
-      await sendSMS(
-        process.env.MY_CELL_NUMBER,
-        `ZIP EXTRACTION FAILED - Job ${customerRecord.id} - Address: "${address}" - asked customer to reply with ZIP.`
-      );
-      await updateCustomer(customerRecord.phone, 'scoping', null, null, {
-        job: {
-          ...((customerRecord.data && customerRecord.data.job) || {}),
-          needs_zip: true,
-        },
-      });
+      console.error('dispatchJob: no ZIP in address for customer', customerRecord.id, '- address:', address);
+      await sendSMS(process.env.MY_CELL_NUMBER, `ZIP MISSING - Job ${customerRecord.id} - Address: "${address}" - manual follow-up needed.`);
       return;
     }
 
