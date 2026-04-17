@@ -284,7 +284,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     // Normal customer agent flow
-    const { reply, newStatus, flag } = await runCustomerAgent(record, body, mediaUrl);
+    const { reply, newStatus, trade, flag } = await runCustomerAgent(record, body, mediaUrl);
 
     // Append TOS notice on very first outbound SMS to a new homeowner
     const isFirstMessage = !record.data.comms || record.data.comms.length === 0;
@@ -303,6 +303,11 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       const photos = (record.data && record.data.photos) || [];
       photos.push({ ts: new Date().toISOString(), url: mediaUrl, type: mediaType });
       additionalData.photos = photos;
+    }
+
+    if (trade) {
+      if (!additionalData.job) additionalData.job = {};
+      additionalData.job.category = trade;
     }
 
     if (newStatus === 'quoting') {

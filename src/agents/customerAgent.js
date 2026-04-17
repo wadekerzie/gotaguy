@@ -119,9 +119,9 @@ Your current goal:
 - If status is agreed: confirm scope, price range, window, and address back to them and tell them we'll reach out as soon as we've matched them with the right contractor
 
 After every response output this exact JSON block on a new line with no other text after it:
-{"reply": "your SMS response here", "newStatus": "new or updated status", "flag": null}
+{"reply": "your SMS response here", "newStatus": "new or updated status", "trade": "the trade category or null if not yet known", "flag": null}
 
-Set flag to "human" if you cannot handle the request. Set newStatus to the same status if nothing changed.`;
+Set flag to "human" if you cannot handle the request. Set newStatus to the same status if nothing changed. Set trade to the single lowercase trade word (e.g. "electrical", "plumbing", "hvac", "painting", "drywall", "handyman", "sprinkler", "garage_door", "pool", "pest_control", "landscaping", "appliance", "fence") as soon as the trade is identified — carry it forward in every response once known. Set trade to null only if the trade is genuinely not yet known.`;
 
 async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
   try {
@@ -176,6 +176,7 @@ async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
     return {
       reply: parsed.reply,
       newStatus: parsed.newStatus,
+      trade: parsed.trade || null,
       flag: parsed.flag || null,
     };
   } catch (err) {
@@ -183,6 +184,7 @@ async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
     return {
       reply: "Sorry, something went wrong on our end. We'll be right with you.",
       newStatus: customerRecord.status,
+      trade: null,
       flag: 'human',
     };
   }
