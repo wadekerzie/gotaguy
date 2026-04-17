@@ -23,6 +23,11 @@ async function dispatchJob(customerRecord) {
 
     if (!zip) {
       console.error('dispatchJob: zip extraction failed for customer', customerRecord.id);
+      // If we already asked once, escalate rather than creating an infinite loop
+      if (job.needs_zip) {
+        await sendSMS(process.env.MY_CELL_NUMBER, `ZIP LOOP - Job ${customerRecord.id} - Address: "${address}" - already asked customer for ZIP, escalating.`);
+        return;
+      }
       await sendSMS(
         customerRecord.phone,
         `One quick thing before we find your pro - what's the ZIP code for the job? Just reply with the 5-digit ZIP.`
@@ -31,8 +36,6 @@ async function dispatchJob(customerRecord) {
         process.env.MY_CELL_NUMBER,
         `ZIP EXTRACTION FAILED - Job ${customerRecord.id} - Address: "${address}" - asked customer to reply with ZIP.`
       );
-      // Move to scoping so the next reply routes back through the customer agent
-      // which will extract the ZIP from their response and retry dispatch
       await updateCustomer(customerRecord.phone, 'scoping', null, null, {
         job: {
           ...((customerRecord.data && customerRecord.data.job) || {}),

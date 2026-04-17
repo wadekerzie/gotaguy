@@ -120,9 +120,9 @@ Your current goal:
 - If status is agreed: confirm scope, price range, window, and address back to them and tell them we'll reach out as soon as we've matched them with the right contractor
 
 After every response output this exact JSON block on a new line with no other text after it:
-{"reply": "your SMS response here", "newStatus": "new or updated status", "trade": "the trade category or null if not yet known", "flag": null}
+{"reply": "your SMS response here", "newStatus": "new or updated status", "trade": "the trade category or null if not yet known", "contact": {"address": "full street address or null", "name": "customer name or null"}, "availability": "their stated availability window or null", "flag": null}
 
-Set flag to "human" if you cannot handle the request. Set newStatus to the same status if nothing changed. Set trade to the single lowercase trade word (e.g. "electrical", "plumbing", "hvac", "painting", "drywall", "handyman", "sprinkler", "garage_door", "pool", "pest_control", "landscaping", "appliance", "fence") as soon as the trade is identified — carry it forward in every response once known. Set trade to null only if the trade is genuinely not yet known.`;
+Set flag to "human" if you cannot handle the request. Set newStatus to the same status if nothing changed. Set trade to the single lowercase trade word (e.g. "electrical", "plumbing", "hvac", "painting", "drywall", "handyman", "sprinkler", "garage_door", "pool", "pest_control", "landscaping", "appliance", "fence") as soon as the trade is identified — carry it forward in every response once known. Set trade to null only if the trade is genuinely not yet known. Set contact.address to the full address string (street, city, state, zip) as soon as it is known — carry it forward once collected. Set contact.name as soon as known. Set availability as soon as the homeowner states their preferred window — carry it forward. Always output the full JSON block even if most fields are null.`;
 
 async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
   try {
@@ -185,6 +185,8 @@ async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
       reply: parsed.reply,
       newStatus: parsed.newStatus,
       trade: parsed.trade || null,
+      contact: parsed.contact || null,
+      availability: parsed.availability || null,
       flag: parsed.flag || null,
     };
   } catch (err) {
@@ -193,6 +195,8 @@ async function runCustomerAgent(customerRecord, inboundText, mediaUrl) {
       reply: "Sorry, something went wrong on our end. We'll be right with you.",
       newStatus: customerRecord.status,
       trade: null,
+      contact: null,
+      availability: null,
       flag: 'human',
     };
   }

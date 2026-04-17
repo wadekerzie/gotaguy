@@ -290,7 +290,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     // Normal customer agent flow
-    const { reply, newStatus, trade, flag } = await runCustomerAgent(record, body, permanentMediaUrl);
+    const { reply, newStatus, trade, contact, availability, flag } = await runCustomerAgent(record, body, permanentMediaUrl);
 
     // Append TOS notice on very first outbound SMS to a new homeowner
     const isFirstMessage = !record.data.comms || record.data.comms.length === 0;
@@ -314,6 +314,20 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     if (trade) {
       if (!additionalData.job) additionalData.job = {};
       additionalData.job.category = trade;
+    }
+
+    if (contact) {
+      const existing = (record.data && record.data.contact) || {};
+      additionalData.contact = { ...existing };
+      if (contact.address) additionalData.contact.address = contact.address;
+      if (contact.name) additionalData.contact.name = contact.name;
+    }
+
+    if (availability) {
+      additionalData.availability = {
+        ...((record.data && record.data.availability) || {}),
+        window: availability,
+      };
     }
 
     if (newStatus === 'quoting') {
