@@ -282,6 +282,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
+    console.log('[yes-debug] status=' + record.status + ' body=' + trimmedBody);
     // YES/NO handling when customer status is complete or price_locked
     if ((record.status === 'complete' || record.status === 'price_locked') && trimmedBody === 'YES') {
       await handleYes(record, from);
