@@ -235,6 +235,21 @@ async function generateShortId() {
   throw new Error('Failed to generate unique short_id after 10 attempts');
 }
 
+async function getCustomerByPhone(phone) {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('phone', phone)
+      .maybeSingle();
+    if (error) throw new Error(`getCustomerByPhone error: ${error.message}`);
+    return data || null;
+  } catch (err) {
+    console.error('getCustomerByPhone error:', err.message);
+    throw err;
+  }
+}
+
 async function getCustomerByShortId(shortId) {
   try {
     const { data, error } = await supabase
@@ -257,6 +272,7 @@ module.exports.createWorker = createWorker;
 module.exports.updateWorker = updateWorker;
 module.exports.getActiveWorkersByTradeAndZip = getActiveWorkersByTradeAndZip;
 module.exports.getCustomerById = getCustomerById;
+module.exports.getCustomerByPhone = getCustomerByPhone;
 module.exports.getWorkerById = getWorkerById;
 module.exports.generateShortId = generateShortId;
 module.exports.getCustomerByShortId = getCustomerByShortId;

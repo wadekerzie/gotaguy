@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getStripe } = require('../services/stripe');
-const { updateCustomer, getCustomerById, getWorkerById } = require('../db/client');
+const { updateCustomer, getCustomerById, getCustomerByPhone, getWorkerById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { calculateFee } = require('../utils/fees');
 
@@ -26,11 +26,19 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
     try {
       const customerId = paymentIntent.metadata.customer_id;
+      const customerPhone = paymentIntent.metadata.customer_phone;
       const confirmedPrice = paymentIntent.amount_capturable / 100;
 
-      const customer = await getCustomerById(customerId);
+      let customer = null;
+      try { customer = await getCustomerById(customerId); } catch (_) {}
+
+      if (!customer && customerPhone) {
+        console.log(`[stripe-webhook] customer not found by id ${customerId}, falling back to phone ${customerPhone}`);
+        try { customer = await getCustomerByPhone(customerPhone); } catch (_) {}
+      }
+
       if (!customer) {
-        console.error('Customer not found for id:', customerId);
+        console.error('Customer not found by id or phone for PI:', paymentIntent.id);
         return res.status(200).json({ received: true });
       }
 
