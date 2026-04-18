@@ -346,7 +346,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     // Extract price range from reply on any status — agent sometimes skips quoting status
-    const priceMatch = reply && reply.match(/\$(\d+)[^$]*\$(\d+)/);
+    const priceMatch = reply && reply.match(/\$(\d+)(?:[^$\d]*|-)\$?(\d+)/);
     if (priceMatch) {
       if (!additionalData.job) additionalData.job = {};
       additionalData.job.quoted_price_low = parseInt(priceMatch[1], 10);
