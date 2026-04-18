@@ -273,6 +273,15 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
+    // Opt-out: homeowner replied NO to a stall reminder
+    const STALLED_STATUSES = ['new', 'scoping', 'quoting', 'scheduling'];
+    if (STALLED_STATUSES.includes(record.status) && (record.data.reminders_sent || 0) > 0 && trimmedBody === 'NO') {
+      const optOutMsg = "Got it — we won't follow up on this one. Text us anytime you need help down the road.";
+      await updateCustomer(from, 'closed', 'NO', optOutMsg, { opted_out: true });
+      await sendSMS(from, optOutMsg);
+      return;
+    }
+
     // YES/NO handling when customer status is complete
     if (record.status === 'complete' && trimmedBody === 'YES') {
       await handleYes(record, from);
@@ -328,6 +337,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         ...((record.data && record.data.availability) || {}),
         window: availability,
       };
+    }
+
+    // Reset reminder counter when stalled customer re-engages
+    if (STALLED_STATUSES.includes(record.status) && (record.data.reminders_sent || 0) > 0) {
+      additionalData.reminders_sent = 0;
+      additionalData.first_reminder_at = null;
     }
 
     if (newStatus === 'quoting') {

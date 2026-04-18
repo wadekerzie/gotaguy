@@ -65,26 +65,58 @@ async function checkStalledConversations() {
     }
     if (!stalled || stalled.length === 0) return 0;
 
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
 
     for (const customer of stalled) {
-      const lastNudge = customer.data && customer.data.last_nudge_at;
-      if (lastNudge && lastNudge > oneDayAgo) continue;
+      const data = customer.data || {};
+      const remindersSent = data.reminders_sent || 0;
+      const category = (data.job && data.job.category) || 'repair';
 
-      const category = (customer.data && customer.data.job && customer.data.job.category) || 'repair';
-
-      try {
-        await sendSMS(customer.phone, `Hey - still looking for help with that ${category}? Just reply and we'll pick up where we left off.`);
-      } catch (err) {
-        console.error('Failed to send stall nudge:', err.message);
+      // Auto-close after 2 reminders with no response
+      if (remindersSent >= 2) {
+        await updateCustomer(customer.phone, 'closed', null, null, {});
+        console.log(`Auto-closed stalled job ${customer.id} (${customer.phone}) after 2 reminders with no response`);
+        issues++;
         continue;
       }
 
-      await updateCustomer(customer.phone, customer.status, null, null, {
-        last_nudge_at: new Date().toISOString(),
-      });
+      // First reminder: fires 2+ hours after last activity (already filtered above)
+      if (remindersSent === 0) {
+        const msg = `Still need help with your ${category} repair? Reply YES to continue or NO to cancel and we'll leave you alone.`;
+        try {
+          await sendSMS(customer.phone, msg);
+        } catch (err) {
+          console.error('Failed to send first reminder:', err.message);
+          continue;
+        }
+        await updateCustomer(customer.phone, customer.status, null, msg, {
+          reminders_sent: 1,
+          first_reminder_at: now,
+        });
+        issues++;
+        continue;
+      }
 
-      issues++;
+      // Second reminder: fires 24+ hours after the first
+      if (remindersSent === 1) {
+        const firstAt = data.first_reminder_at;
+        if (!firstAt) continue;
+        const secondAllowedAt = new Date(new Date(firstAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
+        if (now < secondAllowedAt) continue;
+
+        const msg = `Last check — still need that ${category} repair? Reply YES to continue or NO to close this out.`;
+        try {
+          await sendSMS(customer.phone, msg);
+        } catch (err) {
+          console.error('Failed to send second reminder:', err.message);
+          continue;
+        }
+        await updateCustomer(customer.phone, customer.status, null, msg, {
+          reminders_sent: 2,
+        });
+        issues++;
+        continue;
+      }
     }
   } catch (err) {
     console.error('checkStalledConversations error:', err.message);
