@@ -9,15 +9,15 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 async function runContractorAgent(workerRecord, customerRecord, inboundText) {
   try {
-    const command = (inboundText || '').trim().toUpperCase();
+    const commandWord = (inboundText || '').trim().toUpperCase().split(/\s+/)[0];
 
-    if (command === 'CLAIM') {
+    if (commandWord === 'CLAIM') {
       return await handleClaim(workerRecord, customerRecord);
     }
-    if (command === 'ARRIVED') {
+    if (commandWord === 'ARRIVED') {
       return await handleArrived(workerRecord, customerRecord);
     }
-    if (command === 'DONE') {
+    if (commandWord === 'DONE') {
       return await handleDone(workerRecord, customerRecord);
     }
 
