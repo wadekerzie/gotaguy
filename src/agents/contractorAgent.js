@@ -90,7 +90,7 @@ async function handleClaim(workerRecord, customerRecord) {
 
   // Send to customer (non-blocking — don't fail the claim if customer SMS fails)
   try {
-    await sendSMS(customerRecord.phone, `Good news - ${workerFirstName} will be there ${window}. Text us if you have any questions. (Job #${jobId})`);
+    await sendSMS(customerRecord.phone, `Confirmed! ${workerFirstName} is booked for ${window}. We'll text you when they're on the way with a secure payment link. Questions? Just reply. (Job #${jobId})`);
   } catch (err) {
     console.error('Failed to notify customer of claim:', err.message);
   }

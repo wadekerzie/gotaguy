@@ -30,10 +30,13 @@ async function runMonitorAgent() {
     // CHECK 7 - 30-day closed job follow-up
     issuesFound += await checkThirtyDayFollowup();
 
+    // CHECK 8 - Appointment reminders for dispatched/active jobs
+    issuesFound += await checkAppointmentReminders();
+
     // Log to monitor_logs
     try {
       await supabase.from('monitor_logs').insert({
-        checks_run: 7,
+        checks_run: 8,
         issues_found: issuesFound,
         details: {},
       });
@@ -466,6 +469,51 @@ async function checkThirtyDayFollowup() {
     }
   } catch (err) {
     console.error('checkThirtyDayFollowup error:', err.message);
+  }
+  return issues;
+}
+
+async function checkAppointmentReminders() {
+  let issues = 0;
+  try {
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const { data: jobs, error } = await supabase
+      .from('customers')
+      .select('*')
+      .in('status', ['dispatched', 'active'])
+      .lt('updated_at', twelveHoursAgo);
+
+    if (error) {
+      console.error('Check 8 query error:', error.message);
+      return 0;
+    }
+    if (!jobs || jobs.length === 0) return 0;
+
+    for (const job of jobs) {
+      const data = job.data || {};
+      if (data.appointment_reminder_sent) continue;
+
+      const trade = (data.job && data.job.category) || 'repair';
+      const window = (data.availability && (data.availability.window || data.availability.raw)) || 'your scheduled time';
+      const address = (data.contact && data.contact.address) || '';
+
+      const msg = `Reminder: your ${trade} pro is scheduled for ${window}${address ? ' at ' + address : ''}. Questions? Just reply.`;
+
+      try {
+        await sendSMS(job.phone, msg);
+      } catch (err) {
+        console.error('Failed to send appointment reminder:', err.message);
+        continue;
+      }
+
+      await updateCustomer(job.phone, job.status, null, null, {
+        appointment_reminder_sent: true,
+      });
+
+      issues++;
+    }
+  } catch (err) {
+    console.error('checkAppointmentReminders error:', err.message);
   }
   return issues;
 }

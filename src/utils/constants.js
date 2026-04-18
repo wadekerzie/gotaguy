@@ -27,6 +27,38 @@ const COLLIN_COUNTY_ZIPS = [
   '75080', '75082',
 ];
 
+const ZIP_TO_CITY = {
+  '75069': 'McKinney',
+  '75070': 'McKinney',
+  '75071': 'McKinney',
+  '75072': 'McKinney',
+  '75002': 'Allen',
+  '75013': 'Allen',
+  '75033': 'Frisco',
+  '75034': 'Frisco',
+  '75035': 'Frisco',
+  '75036': 'Frisco',
+  '75023': 'Plano',
+  '75024': 'Plano',
+  '75025': 'Plano',
+  '75026': 'Plano',
+  '75074': 'Plano',
+  '75075': 'Plano',
+  '75086': 'Plano',
+  '75093': 'Plano',
+  '75094': 'Plano',
+  '75078': 'Prosper',
+  '75009': 'Celina',
+  '75098': 'Wylie',
+  '75048': 'Sachse',
+  '75409': 'Anna',
+  '75454': 'Melissa',
+  '75407': 'Princeton',
+  '75166': 'Lavon',
+  '75080': 'Richardson',
+  '75082': 'Richardson',
+};
+
 const TRADES = [
   'electrical',
   'plumbing',
@@ -80,6 +112,7 @@ const PLATFORM_NAME = 'GotaGuy';
 
 module.exports = {
   COLLIN_COUNTY_ZIPS,
+  ZIP_TO_CITY,
   TRADES,
   LICENSED_TRADES,
   TRADE_LABELS,

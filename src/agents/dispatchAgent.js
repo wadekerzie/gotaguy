@@ -1,6 +1,7 @@
 const { getActiveWorkersByTradeAndZip, updateCustomer } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { translateForWorker } = require('../services/translate');
+const { ZIP_TO_CITY } = require('../utils/constants');
 
 async function dispatchJob(customerRecord) {
   try {
@@ -54,16 +55,14 @@ async function dispatchJob(customerRecord) {
     const priceLow = job.quoted_price_low || 0;
     const priceHigh = job.quoted_price_high || 0;
 
-    // Parse city from address
-    const cityMatch = address.match(/([A-Za-z\s]+),?\s*[A-Z]{2}\s*\d{5}/);
-    const city = cityMatch ? cityMatch[1].trim() : '';
+    const city = ZIP_TO_CITY[zip] || zip;
 
     const shortId = customerRecord.short_id || '????';
     const photos = data.photos || [];
     const latestPhoto = photos.length > 0 ? photos[photos.length - 1].url : null;
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nAvailability: ${window}\nQuoted: $${priceLow}-$${priceHigh}${latestPhoto ? '\nPhoto: ' + latestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city}\n${description}\nAvailability: ${window}\nQuoted: $${priceLow}-$${priceHigh}${latestPhoto ? '\nPhoto: ' + latestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);
@@ -132,14 +131,13 @@ async function retryDispatch(customerRecord) {
     const window = availability.window || availability.raw || 'TBD';
     const priceLow = job.quoted_price_low || 0;
     const priceHigh = job.quoted_price_high || 0;
-    const cityMatch = address.match(/([A-Za-z\s]+),?\s*[A-Z]{2}\s*\d{5}/);
-    const city = cityMatch ? cityMatch[1].trim() : '';
+    const city = ZIP_TO_CITY[zip] || zip;
     const shortId = customerRecord.short_id || '????';
     const retryPhotos = data.photos || [];
     const retryLatestPhoto = retryPhotos.length > 0 ? retryPhotos[retryPhotos.length - 1].url : null;
 
     for (const worker of workers) {
-      const jobCard = `Job #${shortId} - ${trade} - ${city} ${zip}\n${description}\nAvailability: ${window}\nQuoted: $${priceLow}-$${priceHigh}${retryLatestPhoto ? '\nPhoto: ' + retryLatestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
+      const jobCard = `Job #${shortId} - ${trade} - ${city}\n${description}\nAvailability: ${window}\nQuoted: $${priceLow}-$${priceHigh}${retryLatestPhoto ? '\nPhoto: ' + retryLatestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);

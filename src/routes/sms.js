@@ -282,12 +282,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
-    // YES/NO handling when customer status is complete
-    if (record.status === 'complete' && trimmedBody === 'YES') {
+    // YES/NO handling when customer status is complete or price_locked
+    if ((record.status === 'complete' || record.status === 'price_locked') && trimmedBody === 'YES') {
       await handleYes(record, from);
       return;
     }
-    if (record.status === 'complete' && trimmedBody === 'NO') {
+    if ((record.status === 'complete' || record.status === 'price_locked') && trimmedBody === 'NO') {
       await handleNo(record, from);
       return;
     }
