@@ -10,7 +10,10 @@ const { runMonitorAgent } = require('./agents/monitorAgent');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-app.get('/health', (req, res) => res.sendStatus(200));
+app.get('/health', (req, res) => res.json({
+  commit: process.env.RAILWAY_GIT_COMMIT_SHA || 'unknown',
+  deployed: new Date().toISOString(),
+}));
 
 // Stripe webhook needs raw body — mount before bodyParser
 app.use('/stripe/webhook', stripeRoute);
