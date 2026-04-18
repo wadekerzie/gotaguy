@@ -29,12 +29,20 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       const customerPhone = paymentIntent.metadata.customer_phone;
       const confirmedPrice = paymentIntent.amount_capturable / 100;
 
+      console.log('[stripe-webhook] metadata customer_id:', customerId);
+      console.log('[stripe-webhook] metadata customer_phone:', paymentIntent.metadata.customer_phone);
+
       let customer = null;
       try { customer = await getCustomerById(customerId); } catch (_) {}
 
+      console.log('[stripe-webhook] getCustomerById result:', customer ? customer.id : 'NOT FOUND');
+
       if (!customer && customerPhone) {
-        console.log(`[stripe-webhook] customer not found by id ${customerId}, falling back to phone ${customerPhone}`);
-        try { customer = await getCustomerByPhone(customerPhone); } catch (_) {}
+        console.log(`[stripe-webhook] falling back to phone lookup: ${customerPhone}`);
+        let customerByPhone = null;
+        try { customerByPhone = await getCustomerByPhone(customerPhone); } catch (_) {}
+        console.log('[stripe-webhook] phone fallback result:', customerByPhone ? customerByPhone.id : 'NOT FOUND');
+        customer = customerByPhone;
       }
 
       if (!customer) {
