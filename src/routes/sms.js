@@ -384,7 +384,10 @@ async function handleYes(customerRecord, from) {
     // Capture the payment
     const stripe = getStripe();
     try {
-      await stripe.paymentIntents.capture(paymentIntentId);
+      const { platformFee } = calculateFee(confirmedPrice);
+      await stripe.paymentIntents.capture(paymentIntentId, {
+        application_fee_amount: Math.round(platformFee * 100),
+      });
     } catch (err) {
       console.error('Stripe capture failed:', err.message);
       await sendSMS(from, "There was an issue processing your payment. We're looking into it - text " + process.env.MY_CELL_NUMBER + " if you need help.");
