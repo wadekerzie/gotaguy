@@ -52,8 +52,24 @@ async function dispatchJob(customerRecord) {
 
     const description = (job.description || '').substring(0, 80);
     const window = availability.window || availability.raw || 'TBD';
-    const priceLow = job.quoted_price_low || 0;
-    const priceHigh = job.quoted_price_high || 0;
+
+    let priceLow = job.quoted_price_low || 0;
+    let priceHigh = job.quoted_price_high || 0;
+
+    // Fallback: scan comms history for a price range if prices weren't persisted
+    if (!priceLow && !priceHigh) {
+      const comms = data.comms || [];
+      for (const msg of comms) {
+        if (msg.direction === 'out') {
+          const m = (msg.body || '').match(/\$(\d+)[^$]*\$(\d+)/);
+          if (m) {
+            priceLow = parseInt(m[1], 10);
+            priceHigh = parseInt(m[2], 10);
+            break;
+          }
+        }
+      }
+    }
 
     const city = ZIP_TO_CITY[zip] || zip;
 
@@ -129,8 +145,24 @@ async function retryDispatch(customerRecord) {
     // Workers found — dispatch normally
     const description = (job.description || '').substring(0, 80);
     const window = availability.window || availability.raw || 'TBD';
-    const priceLow = job.quoted_price_low || 0;
-    const priceHigh = job.quoted_price_high || 0;
+
+    let priceLow = job.quoted_price_low || 0;
+    let priceHigh = job.quoted_price_high || 0;
+
+    if (!priceLow && !priceHigh) {
+      const comms = data.comms || [];
+      for (const msg of comms) {
+        if (msg.direction === 'out') {
+          const m = (msg.body || '').match(/\$(\d+)[^$]*\$(\d+)/);
+          if (m) {
+            priceLow = parseInt(m[1], 10);
+            priceHigh = parseInt(m[2], 10);
+            break;
+          }
+        }
+      }
+    }
+
     const city = ZIP_TO_CITY[zip] || zip;
     const shortId = customerRecord.short_id || '????';
     const retryPhotos = data.photos || [];

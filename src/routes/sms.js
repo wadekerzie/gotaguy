@@ -345,13 +345,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       additionalData.first_reminder_at = null;
     }
 
-    if (newStatus === 'quoting') {
-      const priceMatch = reply.match(/\$(\d+)[^$]*\$(\d+)/);
-      if (priceMatch) {
-        if (!additionalData.job) additionalData.job = {};
-        additionalData.job.quoted_price_low = parseInt(priceMatch[1], 10);
-        additionalData.job.quoted_price_high = parseInt(priceMatch[2], 10);
-      }
+    // Extract price range from reply on any status — agent sometimes skips quoting status
+    const priceMatch = reply && reply.match(/\$(\d+)[^$]*\$(\d+)/);
+    if (priceMatch) {
+      if (!additionalData.job) additionalData.job = {};
+      additionalData.job.quoted_price_low = parseInt(priceMatch[1], 10);
+      additionalData.job.quoted_price_high = parseInt(priceMatch[2], 10);
     }
 
     const outboundMsg = flag === 'human'
