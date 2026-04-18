@@ -352,6 +352,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       additionalData.job.quoted_price_low = parseInt(priceMatch[1], 10);
       additionalData.job.quoted_price_high = parseInt(priceMatch[2], 10);
     }
+    console.log(`[price-debug] status=${newStatus} matched=${!!priceMatch} low=${priceMatch ? priceMatch[1] : 'null'} high=${priceMatch ? priceMatch[2] : 'null'} reply=${JSON.stringify(reply)}`);
 
     const outboundMsg = flag === 'human'
       ? "You've been connected with our team. Someone will text you shortly."
