@@ -97,7 +97,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         try {
           await sendSMS(
             worker.phone,
-            `Customer locked in $${confirmedPrice}. That's your confirmed price - nothing for you to do. Complete the work and text DONE when finished.`
+            `The customer has locked in $${confirmedPrice}. Complete the work and text DONE ${customer.short_id || ''} when finished.`.trim()
           );
         } catch (err) {
           console.error('Failed to SMS contractor:', err.message);

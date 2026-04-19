@@ -7,9 +7,21 @@ const { translateForWorker } = require('../services/translate');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+function hasMultipleOptions(window) {
+  if (!window) return false;
+  return /\bor\b/i.test(window) || /,/.test(window);
+}
+
 async function runContractorAgent(workerRecord, customerRecord, inboundText) {
   try {
     const commandWord = (inboundText || '').trim().toUpperCase().split(/\s+/)[0];
+
+    // If contractor is responding to a pending day confirmation, handle that first
+    if (customerRecord && customerRecord.data && customerRecord.data.schedule && customerRecord.data.schedule.pending_day_confirmation) {
+      if (commandWord !== 'ARRIVED' && commandWord !== 'DONE') {
+        return await handleDayConfirmation(workerRecord, customerRecord, inboundText);
+      }
+    }
 
     if (commandWord === 'CLAIM') {
       return await handleClaim(workerRecord, customerRecord);
@@ -84,7 +96,30 @@ async function handleClaim(workerRecord, customerRecord) {
   const workerFirstName = workerName.split(' ')[0];
   const jobId = customerRecord.short_id || '????';
 
-  // Send to worker
+  if (hasMultipleOptions(window)) {
+    // Ask contractor to pick a specific day before confirming to homeowner
+    const askMsg = await translateForWorker(`Job #${jobId} is yours. Which day works for you - ${window}? Address: ${address}.`, workerRecord);
+    await sendSMS(workerRecord.phone, askMsg);
+
+    // Mark pending day confirmation on the customer record
+    await supabase
+      .from('customers')
+      .update({
+        data: {
+          ...locked.data,
+          schedule: {
+            ...locked.data.schedule,
+            pending_day_confirmation: true,
+          },
+        },
+      })
+      .eq('id', locked.id);
+
+    await updateWorker(workerRecord.phone, workerRecord.status, null, null, {});
+    return { reply: null, action: 'awaiting_day' };
+  }
+
+  // Single availability window — confirm immediately
   const claimMsg = await translateForWorker(`Job #${jobId} is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED ${jobId} when you get there.`, workerRecord);
   await sendSMS(workerRecord.phone, claimMsg);
 
@@ -99,6 +134,47 @@ async function handleClaim(workerRecord, customerRecord) {
   await updateWorker(workerRecord.phone, workerRecord.status, null, null, {});
 
   return { reply: null, action: 'claimed' };
+}
+
+async function handleDayConfirmation(workerRecord, customerRecord, inboundText) {
+  const confirmedDay = (inboundText || '').trim();
+  const jobId = customerRecord.short_id || '????';
+  const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
+  const workerFirstName = workerName.split(' ')[0];
+  const address = (customerRecord.data.contact && customerRecord.data.contact.address) || 'Address not provided';
+
+  // Clear pending flag and store confirmed day
+  await supabase
+    .from('customers')
+    .update({
+      data: {
+        ...customerRecord.data,
+        schedule: {
+          ...customerRecord.data.schedule,
+          pending_day_confirmation: false,
+          confirmed_day: confirmedDay,
+        },
+        availability: {
+          ...((customerRecord.data && customerRecord.data.availability) || {}),
+          window: confirmedDay,
+        },
+      },
+    })
+    .eq('id', customerRecord.id);
+
+  // Confirm to contractor
+  const confirmMsg = await translateForWorker(`Got it - ${confirmedDay} is confirmed. Address: ${address}. Text ARRIVED ${jobId} when you get there.`, workerRecord);
+  await sendSMS(workerRecord.phone, confirmMsg);
+
+  // Notify homeowner of specific day
+  try {
+    await sendSMS(customerRecord.phone, `Good news - ${workerFirstName} confirmed they'll be there ${confirmedDay}. You'll get a payment link when they arrive. Questions? Just reply. (Job #${jobId})`);
+  } catch (err) {
+    console.error('Failed to notify customer of confirmed day:', err.message);
+  }
+
+  await updateWorker(workerRecord.phone, workerRecord.status, inboundText, null, {});
+  return { reply: null, action: 'day_confirmed' };
 }
 
 async function handleArrived(workerRecord, customerRecord) {
