@@ -122,7 +122,8 @@ async function handleArrived(workerRecord, customerRecord) {
   // Generate Stripe payment link
   let paymentUrl;
   try {
-    paymentUrl = await createPaymentLink(customerRecord);
+    const workerStripeAccountId = workerRecord.data && workerRecord.data.stripe_account_id;
+    paymentUrl = await createPaymentLink(customerRecord, workerStripeAccountId);
   } catch (err) {
     console.error('Failed to create payment link:', err.message);
     const errMsg = await translateForWorker("We hit a snag creating the payment link. Give us a sec - texting the team now.", workerRecord);

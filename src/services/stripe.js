@@ -39,7 +39,7 @@ async function getOrCreateCustomAmountPrice() {
   return cachedPriceId;
 }
 
-async function createPaymentLink(customerRecord) {
+async function createPaymentLink(customerRecord, workerStripeAccountId) {
   try {
     const s = getStripe();
     const priceId = await getOrCreateCustomAmountPrice();
@@ -47,23 +47,24 @@ async function createPaymentLink(customerRecord) {
     const customerName = (customerRecord.data.contact && customerRecord.data.contact.name) || 'Customer';
     const jobCategory = (customerRecord.data.job && customerRecord.data.job.category) || 'home repair';
 
+    const paymentIntentData = {
+      capture_method: 'manual',
+      metadata: {
+        customer_id: customerRecord.id,
+        customer_phone: customerRecord.phone,
+        job_category: jobCategory,
+      },
+      description: `GotaGuy - ${jobCategory} - ${customerName}`,
+    };
+
+    if (workerStripeAccountId) {
+      paymentIntentData.transfer_data = { destination: workerStripeAccountId };
+    }
+
     const session = await s.checkout.sessions.create({
       mode: 'payment',
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      payment_intent_data: {
-        capture_method: 'manual',
-        metadata: {
-          customer_id: customerRecord.id,
-          customer_phone: customerRecord.phone,
-          job_category: jobCategory,
-        },
-        description: `GotaGuy - ${jobCategory} - ${customerName}`,
-      },
+      line_items: [{ price: priceId, quantity: 1 }],
+      payment_intent_data: paymentIntentData,
       success_url: 'https://gotaguy-production.up.railway.app/payment-success',
       cancel_url: 'https://gotaguy-production.up.railway.app/payment-cancelled',
     });
