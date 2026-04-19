@@ -499,6 +499,32 @@ async function handleNo(customerRecord, from) {
     const jobId = customerRecord.short_id || '????';
     await sendSMS(process.env.MY_CELL_NUMBER, `DISPUTE - ${from} - Job #${jobId} - ${jobCategory} - $${confirmedPrice} - ${contractorName}`);
 
+    // Cancel the Stripe PaymentIntent to release the card hold
+    const paymentIntentId = invoice.stripe_payment_intent_id;
+    if (paymentIntentId) {
+      try {
+        const stripe = getStripe();
+        await stripe.paymentIntents.cancel(paymentIntentId);
+        console.log(`[handleNo] PaymentIntent ${paymentIntentId} cancelled for dispute on job #${jobId}`);
+      } catch (err) {
+        console.error(`[handleNo] Failed to cancel PaymentIntent ${paymentIntentId}:`, err.message);
+        await sendSMS(process.env.MY_CELL_NUMBER, `DISPUTE PI CANCEL FAILED - Job #${jobId} - PI: ${paymentIntentId} - ${err.message}`);
+      }
+    }
+
+    // Notify contractor that payment is on hold
+    if (workerId) {
+      try {
+        const worker = await getWorkerById(workerId);
+        if (worker) {
+          const workerMsg = await translateForWorker(`The customer has raised a concern about Job #${jobId}. Payment is on hold while we look into it. We'll be in touch shortly.`, worker);
+          await sendSMS(worker.phone, workerMsg);
+        }
+      } catch (err) {
+        console.error('[handleNo] Failed to notify contractor of dispute:', err.message);
+      }
+    }
+
     await updateCustomer(from, 'complete', 'NO', "No problem - what's the concern? We want to make sure you're satisfied before releasing payment.", {});
 
     console.log(`Dispute flagged for ${from}: $${confirmedPrice}`);
