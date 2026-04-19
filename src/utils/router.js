@@ -11,7 +11,7 @@ async function resolveContact(phone) {
 
     if (customer) {
       // Returning customer whose last job is closed — archive and start fresh
-      if (customer.status === 'closed' || customer.status === 'complete') {
+      if (customer.status === 'closed') {
         await archiveCustomer(customer);
         // Return null so sms.js treats this as a new contact and creates a fresh row
         return null;
