@@ -383,6 +383,9 @@ async function handleYes(customerRecord, from) {
       return;
     }
 
+    const confirmedPrice = invoice.confirmed_price || 0;
+    const payoutAmount = invoice.payout_amount || calculateFee(confirmedPrice).contractorPayout;
+
     // Capture the payment
     const stripe = getStripe();
     try {
@@ -398,8 +401,6 @@ async function handleYes(customerRecord, from) {
     }
 
     const now = new Date().toISOString();
-    const confirmedPrice = invoice.confirmed_price || 0;
-    const payoutAmount = invoice.payout_amount || calculateFee(confirmedPrice).contractorPayout;
 
     // Update customer to closed
     await updateCustomer(from, 'closed', 'YES', null, {
@@ -449,7 +450,7 @@ async function handleYes(customerRecord, from) {
     // Send Google review request to customer
     if (process.env.GOOGLE_REVIEW_LINK) {
       try {
-        await sendSMS(from, `Happy to hear it. If you have 60 seconds, a Google review helps us bring more great pros to McKinney: ${process.env.GOOGLE_REVIEW_LINK}. Thanks for using GotaGuy.`);
+        await sendSMS(from, `Thank you for using GotaGuy! If your pro did a great job, a quick review would mean the world to us: ${process.env.GOOGLE_REVIEW_LINK}`);
       } catch (err) {
         console.error('Failed to send Google review SMS:', err.message);
       }
