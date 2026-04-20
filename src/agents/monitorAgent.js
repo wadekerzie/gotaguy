@@ -131,6 +131,8 @@ async function checkUnclaimedJobs() {
   let issues = 0;
   try {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+
     const { data: unclaimed, error } = await supabase
       .from('customers')
       .select('*')
@@ -143,12 +145,16 @@ async function checkUnclaimedJobs() {
     }
     if (!unclaimed || unclaimed.length === 0) return 0;
 
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-
     for (const job of unclaimed) {
-      const lastAlert = job.data && job.data.last_dispatch_alert_at;
-      if (lastAlert && lastAlert > fourHoursAgo) continue;
+      const alertsSent = (job.data && job.data.no_claim_alerts_sent) || 0;
 
+      // Cap at 2 alerts total (one at 2h, one at 4h)
+      if (alertsSent >= 2) continue;
+
+      // Second alert only fires once the job has been waiting 4+ hours
+      if (alertsSent === 1 && job.updated_at >= fourHoursAgo) continue;
+
+      const shortId = job.short_id || '????';
       const category = (job.data && job.data.job && job.data.job.category) || 'unknown';
       const address = (job.data && job.data.contact && job.data.contact.address) || '';
       const zipMatch = address.match(/\b(\d{5})\b/);
@@ -156,7 +162,7 @@ async function checkUnclaimedJobs() {
       const hoursWaiting = Math.round((Date.now() - new Date(job.updated_at).getTime()) / (60 * 60 * 1000));
 
       try {
-        await sendSMS(process.env.MY_CELL_NUMBER, `NO CLAIM - Job ${job.id} ${category} in ${zip} has been waiting ${hoursWaiting} hrs. Consider adding more ${category} contractors.`);
+        await sendSMS(process.env.MY_CELL_NUMBER, `NO CLAIM - Job #${shortId} ${category} in ${zip} has been waiting ${hoursWaiting} hrs. Consider adding more ${category} contractors.`);
       } catch (err) {
         console.error('Failed to send unclaimed alert:', err.message);
         continue;
@@ -173,7 +179,7 @@ async function checkUnclaimedJobs() {
       }
 
       await updateCustomer(job.phone, job.status, null, null, {
-        last_dispatch_alert_at: new Date().toISOString(),
+        no_claim_alerts_sent: alertsSent + 1,
         waitlist: { ...waitlist, homeowner_notified: true },
       });
 
