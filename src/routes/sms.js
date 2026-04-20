@@ -294,6 +294,14 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
+    // Holding response for in-progress jobs — do not run agent or re-dispatch
+    if (['dispatched', 'active', 'price_locked'].includes(record.status)) {
+      const holdingMsg = "You're all set - we'll be in touch!";
+      await sendSMS(from, holdingMsg);
+      await updateCustomer(from, record.status, body, holdingMsg, {});
+      return;
+    }
+
     // Download and permanently store any inbound photo before passing to agent
     let permanentMediaUrl = null;
     if (mediaUrl) {
