@@ -171,8 +171,13 @@ async function handleDayConfirmation(workerRecord, customerRecord, inboundText) 
     })
     .eq('id', customerRecord.id);
 
-  // Confirm to contractor
-  const confirmMsg = await translateForWorker(`Got it - ${confirmedDay} is confirmed. Address: ${address}. Text ARRIVED ${jobId} when you get there.`, workerRecord);
+  // Confirm to contractor with homeowner contact and ARRIVED reminder
+  const customerName = (customerRecord.data.contact && customerRecord.data.contact.name) || 'Customer';
+  const customerPhone = customerRecord.phone;
+  const confirmMsg = await translateForWorker(
+    `Got it - Job #${jobId} is yours. ${confirmedDay} at ${address}.\n\nCustomer: ${customerName} ${customerPhone} - reach out directly if you need to adjust timing.\n\nImportant: text ARRIVED ${jobId} when you're on site - that's what triggers payment and gets you paid.`,
+    workerRecord
+  );
   await sendSMS(workerRecord.phone, confirmMsg);
 
   // Notify homeowner of specific day
