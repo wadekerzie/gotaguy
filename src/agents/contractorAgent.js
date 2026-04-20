@@ -207,10 +207,15 @@ async function handleArrived(workerRecord, customerRecord) {
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
   const workerFirstName = workerName.split(' ')[0];
 
-  // Send address confirmation to contractor
+  // Send address confirmation to contractor with homeowner contact and payment context
   const address = (customerRecord.data.contact && customerRecord.data.contact.address) || 'Address not provided';
   const jobId = customerRecord.short_id || '????';
-  const arrivedMsg = await translateForWorker(`Job #${jobId} confirmed. Head to ${address}. Text DONE ${jobId} when the work is complete.`, workerRecord);
+  const customerContactName = (customerRecord.data.contact && customerRecord.data.contact.name) || 'Customer';
+  const customerContactPhone = customerRecord.phone;
+  const arrivedMsg = await translateForWorker(
+    `Job #${jobId} confirmed. Head to ${address}.\n\nCustomer: ${customerContactName} ${customerContactPhone} - reach out directly if you need to adjust timing.\n\nThe customer will receive a payment link to authorize the agreed amount. Text DONE ${jobId} when the work is complete.`,
+    workerRecord
+  );
   await sendSMS(workerRecord.phone, arrivedMsg);
 
   // Generate Stripe payment link
