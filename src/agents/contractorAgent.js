@@ -180,9 +180,13 @@ async function handleDayConfirmation(workerRecord, customerRecord, inboundText) 
   );
   await sendSMS(workerRecord.phone, confirmMsg);
 
-  // Notify homeowner of specific day
+  // Notify homeowner of specific day with contractor contact
+  const workerPhone = workerRecord.phone;
   try {
-    await sendSMS(customerRecord.phone, `Good news - ${workerFirstName} confirmed they'll be there ${confirmedDay}. You'll get a payment link when they arrive. Questions? Just reply. (Job #${jobId})`);
+    await sendSMS(
+      customerRecord.phone,
+      `Confirmed - your pro will be there ${confirmedDay} at ${address}.\n\nContractor: ${workerFirstName} ${workerPhone} - reach out directly if you need to adjust timing.\n\nYou'll receive a text with a secure payment link when they arrive. (Job #${jobId})`
+    );
   } catch (err) {
     console.error('Failed to notify customer of confirmed day:', err.message);
   }
