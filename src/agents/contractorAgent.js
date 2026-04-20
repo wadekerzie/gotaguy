@@ -42,16 +42,22 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
       return await handleDone(workerRecord, customerRecord);
     }
 
-    // Hardcoded holding response for in-progress jobs — no AI needed post-agreed
+    // Intent detection for in-progress jobs
     if (customerRecord && ['active', 'price_locked', 'complete'].includes(customerRecord.status)) {
-      const jobId = customerRecord.short_id || '????';
-      const holdingText = customerRecord.status === 'price_locked'
-        ? `Got it. Text DONE ${jobId} when the work is complete.`
-        : `Got it - we'll pass that along. Text DONE ${jobId} when the work is complete.`;
-      const msg = await translateForWorker(holdingText, workerRecord);
-      await sendSMS(workerRecord.phone, msg);
-      await updateWorker(workerRecord.phone, workerRecord.status, inboundText, holdingText, {});
-      return { reply: null, action: 'held' };
+      const isAck = /^\s*(yes|ok|okay|great|thanks|thank you|got it|sounds good|perfect|awesome|on my way|omw|k|👍)\s*[!.]*\s*$/i.test(inboundText);
+      const needsHelp = /late|reschedule|cancel|change|problem|issue|wrong|help|\?|can't make it|cannot make|delay|different day|different time/i.test(inboundText);
+
+      if (isAck || !needsHelp) {
+        const jobId = customerRecord.short_id || '????';
+        const holdingText = customerRecord.status === 'price_locked'
+          ? `Got it. Text DONE ${jobId} when the work is complete.`
+          : `Got it - we'll pass that along. Text DONE ${jobId} when the work is complete.`;
+        const msg = await translateForWorker(holdingText, workerRecord);
+        await sendSMS(workerRecord.phone, msg);
+        await updateWorker(workerRecord.phone, workerRecord.status, inboundText, holdingText, {});
+        return { reply: null, action: 'held' };
+      }
+      // Falls through to handleFreeText for substantive messages
     }
 
     // Anything else — pass to Claude

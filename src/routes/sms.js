@@ -294,12 +294,18 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
-    // Holding response for in-progress jobs — do not run agent or re-dispatch
+    // Intent detection for in-progress jobs
     if (['dispatched', 'active', 'price_locked'].includes(record.status)) {
-      const holdingMsg = "You're all set - we'll be in touch!";
-      await sendSMS(from, holdingMsg);
-      await updateCustomer(from, record.status, body, holdingMsg, {});
-      return;
+      const isAck = /^\s*(yes|ok|okay|great|thanks|thank you|wonderful|got it|sounds good|perfect|awesome|k|👍)\s*[!.]*\s*$/i.test(body);
+      const needsHelp = /cancel|reschedule|change|problem|issue|wrong|help|\?|running late|can't make it|cannot make|delay|different day|different time/i.test(body);
+
+      if (isAck || !needsHelp) {
+        const holdingMsg = "You're all set - we'll be in touch!";
+        await sendSMS(from, holdingMsg);
+        await updateCustomer(from, record.status, body, holdingMsg, {});
+        return;
+      }
+      // Falls through to runCustomerAgent with the record's current status for context
     }
 
     // Download and permanently store any inbound photo before passing to agent
