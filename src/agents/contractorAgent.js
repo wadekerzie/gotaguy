@@ -42,6 +42,18 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
       return await handleDone(workerRecord, customerRecord);
     }
 
+    // Hardcoded holding response for in-progress jobs — no AI needed post-agreed
+    if (customerRecord && ['active', 'price_locked', 'complete'].includes(customerRecord.status)) {
+      const jobId = customerRecord.short_id || '????';
+      const holdingText = customerRecord.status === 'price_locked'
+        ? `Got it. Text DONE ${jobId} when the work is complete.`
+        : `Got it - we'll pass that along. Text DONE ${jobId} when the work is complete.`;
+      const msg = await translateForWorker(holdingText, workerRecord);
+      await sendSMS(workerRecord.phone, msg);
+      await updateWorker(workerRecord.phone, workerRecord.status, inboundText, holdingText, {});
+      return { reply: null, action: 'held' };
+    }
+
     // Anything else — pass to Claude
     return await handleFreeText(workerRecord, customerRecord, inboundText);
   } catch (err) {
