@@ -16,10 +16,19 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
   try {
     const commandWord = (inboundText || '').trim().toUpperCase().split(/\s+/)[0];
 
-    // If contractor is responding to a pending day confirmation, handle that first
-    if (customerRecord && customerRecord.data && customerRecord.data.schedule && customerRecord.data.schedule.pending_day_confirmation) {
-      if (commandWord !== 'ARRIVED' && commandWord !== 'DONE') {
-        return await handleDayConfirmation(workerRecord, customerRecord, inboundText);
+    // Reliably detect pending day confirmation — query DB directly so we don't
+    // depend on whatever customerRecord sms.js happened to pass
+    if (commandWord !== 'CLAIM' && commandWord !== 'ARRIVED' && commandWord !== 'DONE') {
+      const { data: pendingJobs } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('status', 'active')
+        .filter('data->schedule->>worker_id', 'eq', workerRecord.id)
+        .filter('data->schedule->>pending_day_confirmation', 'eq', 'true')
+        .limit(1);
+
+      if (pendingJobs && pendingJobs.length > 0) {
+        return await handleDayConfirmation(workerRecord, pendingJobs[0], inboundText);
       }
     }
 
@@ -97,8 +106,8 @@ async function handleClaim(workerRecord, customerRecord) {
   const jobId = customerRecord.short_id || '????';
 
   if (hasMultipleOptions(window)) {
-    // Ask contractor to pick a specific day before confirming to homeowner
-    const askMsg = await translateForWorker(`Job #${jobId} is yours. Which day works for you - ${window}? Address: ${address}.`, workerRecord);
+    // Ask contractor to pick a specific day — don't confirm job until they respond
+    const askMsg = await translateForWorker(`Job #${jobId} - which day works for you: ${window}? Reply with your day to confirm. Address: ${address}.`, workerRecord);
     await sendSMS(workerRecord.phone, askMsg);
 
     // Mark pending day confirmation on the customer record
