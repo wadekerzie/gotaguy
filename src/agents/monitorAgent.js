@@ -4,6 +4,19 @@ const { sendSMS } = require('../services/twilio');
 const { TRADES } = require('../utils/constants');
 const { retryDispatch } = require('./dispatchAgent');
 
+function isValidPhone(number) {
+  return typeof number === 'string' && /^\+1[2-9]\d{9}$/.test(number);
+}
+
+async function sendAdminSMS(msg) {
+  const adminPhone = process.env.MY_CELL_NUMBER;
+  if (!isValidPhone(adminPhone)) {
+    console.warn(`[monitorAgent] Skipping admin SMS - MY_CELL_NUMBER is missing or invalid: "${adminPhone}"`);
+    return;
+  }
+  await sendSMS(adminPhone, msg);
+}
+
 
 async function runMonitorAgent() {
   let issuesFound = 0;
@@ -162,7 +175,7 @@ async function checkUnclaimedJobs() {
       const hoursWaiting = Math.round((Date.now() - new Date(job.updated_at).getTime()) / (60 * 60 * 1000));
 
       try {
-        await sendSMS(process.env.MY_CELL_NUMBER, `NO CLAIM - Job #${shortId} ${category} in ${zip} has been waiting ${hoursWaiting} hrs. Consider adding more ${category} contractors.`);
+        await sendAdminSMS( `NO CLAIM - Job #${shortId} ${category} in ${zip} has been waiting ${hoursWaiting} hrs. Consider adding more ${category} contractors.`);
       } catch (err) {
         console.error('Failed to send unclaimed alert:', err.message);
         continue;
@@ -217,7 +230,7 @@ async function checkStalledPriceLocked() {
       const workerId = (job.data && job.data.schedule && job.data.schedule.worker_id) || 'unknown';
 
       try {
-        await sendSMS(process.env.MY_CELL_NUMBER, `STALLED - Job ${job.id} price locked $${confirmedPrice} but not complete. Customer: ${job.phone} Worker: ${workerId}`);
+        await sendAdminSMS( `STALLED - Job ${job.id} price locked $${confirmedPrice} but not complete. Customer: ${job.phone} Worker: ${workerId}`);
       } catch (err) {
         console.error('Failed to send stalled alert:', err.message);
         continue;
@@ -257,7 +270,7 @@ async function checkRosterCoverage() {
 
       if (count === 0) {
         try {
-          await sendSMS(process.env.MY_CELL_NUMBER, `ROSTER GAP - No ${trade} contractors in system at all.`);
+          await sendAdminSMS( `ROSTER GAP - No ${trade} contractors in system at all.`);
         } catch (err) {
           console.error(`Failed to send roster gap alert for ${trade}:`, err.message);
           continue;
@@ -318,7 +331,7 @@ async function checkWaitlistedJobs() {
       if (retryCount >= MAX_WAITLIST_RETRIES) {
         if (!waitlist.escalated_at) {
           const now = new Date().toISOString();
-          await sendSMS(process.env.MY_CELL_NUMBER, `ESCALATION - Job #${shortId} ${category} in ${zip} - ${retryCount} retries exhausted. Customer: ${customer.phone}. Manual dispatch needed: POST /admin/dispatch/${customer.id}`);
+          await sendAdminSMS( `ESCALATION - Job #${shortId} ${category} in ${zip} - ${retryCount} retries exhausted. Customer: ${customer.phone}. Manual dispatch needed: POST /admin/dispatch/${customer.id}`);
           await updateCustomer(customer.phone, 'waitlisted', null, null, {
             waitlist: { ...waitlist, escalated_at: now },
           });
