@@ -50,7 +50,7 @@ async function dispatchJob(customerRecord) {
         },
       });
 
-      await sendSMS(customerRecord.phone, `We're lining up a ${trade} pro for your job (Job #${shortId}). Hang tight - we'll text you as soon as someone's available.`);
+      await sendSMS(customerRecord.phone, `We're lining up a ${trade} pro for your job (Job #${shortId}). Hang tight - we'll text you as soon as someone's available.`, market ? market.twilio_number : undefined);
       await sendSMS(process.env.MY_CELL_NUMBER, `WAITLISTED - Job #${shortId} ${trade} in ${zip} - no available contractors. Auto-retry active.`);
       return;
     }
@@ -87,7 +87,7 @@ async function dispatchJob(customerRecord) {
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);
-        await sendSMS(worker.phone, localizedCard);
+        await sendSMS(worker.phone, localizedCard, market ? market.twilio_number : undefined);
       } catch (err) {
         console.error(`Failed to send job card to worker ${worker.phone}:`, err.message);
       }
@@ -179,14 +179,14 @@ async function retryDispatch(customerRecord) {
 
       try {
         const localizedCard = await translateForWorker(jobCard, worker);
-        await sendSMS(worker.phone, localizedCard);
+        await sendSMS(worker.phone, localizedCard, market ? market.twilio_number : undefined);
       } catch (err) {
         console.error(`Failed to send job card to worker ${worker.phone}:`, err.message);
       }
     }
 
     await updateCustomer(customerRecord.phone, 'dispatched', null, null, {});
-    await sendSMS(customerRecord.phone, `Great news - we found a pro for your job (Job #${shortId}). You'll hear from them soon.`);
+    await sendSMS(customerRecord.phone, `Great news - we found a pro for your job (Job #${shortId}). You'll hear from them soon.`, market ? market.twilio_number : undefined);
 
     console.log(`retryDispatch: Job #${shortId} dispatched to ${workers.length} workers`);
     return { dispatched: true, workersNotified: workers.length };

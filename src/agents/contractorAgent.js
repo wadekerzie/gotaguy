@@ -12,7 +12,7 @@ function hasMultipleOptions(window) {
   return /\bor\b/i.test(window) || /,/.test(window);
 }
 
-async function runContractorAgent(workerRecord, customerRecord, inboundText) {
+async function runContractorAgent(workerRecord, customerRecord, inboundText, marketNumber) {
   try {
     const commandWord = (inboundText || '').trim().toUpperCase().split(/\s+/)[0];
 
@@ -28,18 +28,18 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
         .limit(1);
 
       if (pendingJobs && pendingJobs.length > 0) {
-        return await handleDayConfirmation(workerRecord, pendingJobs[0], inboundText);
+        return await handleDayConfirmation(workerRecord, pendingJobs[0], inboundText, marketNumber);
       }
     }
 
     if (commandWord === 'CLAIM') {
-      return await handleClaim(workerRecord, customerRecord);
+      return await handleClaim(workerRecord, customerRecord, marketNumber);
     }
     if (commandWord === 'ARRIVED') {
-      return await handleArrived(workerRecord, customerRecord);
+      return await handleArrived(workerRecord, customerRecord, marketNumber);
     }
     if (commandWord === 'DONE') {
-      return await handleDone(workerRecord, customerRecord);
+      return await handleDone(workerRecord, customerRecord, marketNumber);
     }
 
     // Intent detection for in-progress jobs
@@ -53,7 +53,7 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
           ? `Got it. Text DONE ${jobId} when the work is complete.`
           : `Got it - we'll pass that along. Text DONE ${jobId} when the work is complete.`;
         const msg = await translateForWorker(holdingText, workerRecord);
-        await sendSMS(workerRecord.phone, msg);
+        await sendSMS(workerRecord.phone, msg, marketNumber);
         await updateWorker(workerRecord.phone, workerRecord.status, inboundText, holdingText, {});
         return { reply: null, action: 'held' };
       }
@@ -61,26 +61,26 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText) {
     }
 
     // Anything else — pass to Claude
-    return await handleFreeText(workerRecord, customerRecord, inboundText);
+    return await handleFreeText(workerRecord, customerRecord, inboundText, marketNumber);
   } catch (err) {
     console.error('contractorAgent error:', err.message);
     const errMsg = await translateForWorker("Something went wrong on our end. Try again or text " + process.env.MY_CELL_NUMBER + " for help.", workerRecord);
-    await sendSMS(workerRecord.phone, errMsg).catch(() => {});
+    await sendSMS(workerRecord.phone, errMsg, marketNumber).catch(() => {});
     return { reply: null, action: 'error' };
   }
 }
 
-async function handleClaim(workerRecord, customerRecord) {
+async function handleClaim(workerRecord, customerRecord, marketNumber) {
   if (!customerRecord) {
     const msg = await translateForWorker("We don't see an open job to claim right now. Text us if you need help.", workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'no_job' };
   }
 
   // Check if already claimed
   if (customerRecord.data && customerRecord.data.schedule && customerRecord.data.schedule.worker_id) {
     const msg = await translateForWorker("Sorry - that job was just claimed by someone else.", workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'already_claimed' };
   }
 
@@ -110,7 +110,7 @@ async function handleClaim(workerRecord, customerRecord) {
 
   if (lockErr || !locked) {
     const msg = await translateForWorker("Sorry - that job was just claimed by someone else.", workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'race_lost' };
   }
 
@@ -126,7 +126,7 @@ async function handleClaim(workerRecord, customerRecord) {
   if (hasMultipleOptions(window)) {
     // Ask contractor to pick a specific day — don't confirm job until they respond
     const askMsg = await translateForWorker(`Job #${jobId} - which day works for you: ${window}? Reply with your day to confirm. Address: ${address}.`, workerRecord);
-    await sendSMS(workerRecord.phone, askMsg);
+    await sendSMS(workerRecord.phone, askMsg, marketNumber);
 
     // Mark pending day confirmation on the customer record
     await supabase
@@ -148,11 +148,11 @@ async function handleClaim(workerRecord, customerRecord) {
 
   // Single availability window — confirm immediately
   const claimMsg = await translateForWorker(`Job #${jobId} is yours. ${firstName} is expecting you ${window}. Address: ${address}. Text ARRIVED ${jobId} when you get there.`, workerRecord);
-  await sendSMS(workerRecord.phone, claimMsg);
+  await sendSMS(workerRecord.phone, claimMsg, marketNumber);
 
   // Send to customer (non-blocking — don't fail the claim if customer SMS fails)
   try {
-    await sendSMS(customerRecord.phone, `Confirmed! ${workerFirstName} is booked for ${window}. We'll text you when they're on the way with a secure payment link. Questions? Just reply. (Job #${jobId})`);
+    await sendSMS(customerRecord.phone, `Confirmed! ${workerFirstName} is booked for ${window}. We'll text you when they're on the way with a secure payment link. Questions? Just reply. (Job #${jobId})`, marketNumber);
   } catch (err) {
     console.error('Failed to notify customer of claim:', err.message);
   }
@@ -163,7 +163,7 @@ async function handleClaim(workerRecord, customerRecord) {
   return { reply: null, action: 'claimed' };
 }
 
-async function handleDayConfirmation(workerRecord, customerRecord, inboundText) {
+async function handleDayConfirmation(workerRecord, customerRecord, inboundText, marketNumber) {
   const confirmedDay = (inboundText || '').trim();
   const jobId = customerRecord.short_id || '????';
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Your contractor';
@@ -196,14 +196,15 @@ async function handleDayConfirmation(workerRecord, customerRecord, inboundText) 
     `Got it - Job #${jobId} is yours. ${confirmedDay} at ${address}.\n\nCustomer: ${customerName} ${customerPhone} - reach out directly if you need to adjust timing.\n\nImportant: text ARRIVED ${jobId} when you're on site - that's what triggers payment and gets you paid.`,
     workerRecord
   );
-  await sendSMS(workerRecord.phone, confirmMsg);
+  await sendSMS(workerRecord.phone, confirmMsg, marketNumber);
 
   // Notify homeowner of specific day with contractor contact
   const workerPhone = workerRecord.phone;
   try {
     await sendSMS(
       customerRecord.phone,
-      `Confirmed - your pro will be there ${confirmedDay} at ${address}.\n\nContractor: ${workerFirstName} ${workerPhone} - reach out directly if you need to adjust timing.\n\nYou'll receive a text with a secure payment link when they arrive. (Job #${jobId})`
+      `Confirmed - your pro will be there ${confirmedDay} at ${address}.\n\nContractor: ${workerFirstName} ${workerPhone} - reach out directly if you need to adjust timing.\n\nYou'll receive a text with a secure payment link when they arrive. (Job #${jobId})`,
+      marketNumber
     );
   } catch (err) {
     console.error('Failed to notify customer of confirmed day:', err.message);
@@ -213,10 +214,10 @@ async function handleDayConfirmation(workerRecord, customerRecord, inboundText) 
   return { reply: null, action: 'day_confirmed' };
 }
 
-async function handleArrived(workerRecord, customerRecord) {
+async function handleArrived(workerRecord, customerRecord, marketNumber) {
   if (!customerRecord || customerRecord.status !== 'active') {
     const msg = await translateForWorker(`Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`, workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'invalid_state' };
   }
 
@@ -234,7 +235,7 @@ async function handleArrived(workerRecord, customerRecord) {
     `Job #${jobId} confirmed. Head to ${address}.\n\nCustomer: ${customerContactName} ${customerContactPhone} - reach out directly if you need to adjust timing.\n\nThe customer will receive a payment link to authorize the agreed amount. Text DONE ${jobId} when the work is complete.`,
     workerRecord
   );
-  await sendSMS(workerRecord.phone, arrivedMsg);
+  await sendSMS(workerRecord.phone, arrivedMsg, marketNumber);
 
   // Generate Stripe payment link
   let paymentUrl;
@@ -244,14 +245,14 @@ async function handleArrived(workerRecord, customerRecord) {
   } catch (err) {
     console.error('Failed to create payment link:', err.message);
     const errMsg = await translateForWorker("We hit a snag creating the payment link. Give us a sec - texting the team now.", workerRecord);
-    await sendSMS(workerRecord.phone, errMsg);
+    await sendSMS(workerRecord.phone, errMsg, marketNumber);
     await sendSMS(process.env.MY_CELL_NUMBER, `Payment link failed for job ${customerRecord.id}: ${err.message}`);
     return { reply: null, action: 'payment_link_error' };
   }
 
   // Send to customer with payment link
   try {
-    await sendSMS(customerRecord.phone, `Hi ${firstName} - ${workerFirstName} is at your door. Agree on a final price with them, then enter it and your card here to get started. Your card will not be charged until you confirm the work is complete: ${paymentUrl}`);
+    await sendSMS(customerRecord.phone, `Hi ${firstName} - ${workerFirstName} is at your door. Agree on a final price with them, then enter it and your card here to get started. Your card will not be charged until you confirm the work is complete: ${paymentUrl}`, marketNumber);
   } catch (err) {
     console.error('Failed to send payment link to customer:', err.message);
   }
@@ -262,17 +263,17 @@ async function handleArrived(workerRecord, customerRecord) {
   return { reply: null, action: 'arrived' };
 }
 
-async function handleDone(workerRecord, customerRecord) {
+async function handleDone(workerRecord, customerRecord, marketNumber) {
   if (!customerRecord || (customerRecord.status !== 'price_locked' && customerRecord.status !== 'active')) {
     const msg = await translateForWorker(`Hmm, something looks off - text us at ${process.env.MY_CELL_NUMBER} for help.`, workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'invalid_state' };
   }
 
   const invoice = (customerRecord.data && customerRecord.data.invoice) || {};
   if (!invoice.confirmed_price) {
     const msg = await translateForWorker("Heads up - the customer hasn't locked in a price yet. Give them a moment or have them check their texts.", workerRecord);
-    await sendSMS(workerRecord.phone, msg);
+    await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'price_not_locked' };
   }
 
@@ -286,11 +287,11 @@ async function handleDone(workerRecord, customerRecord) {
 
   // Send to contractor
   const doneMsg = await translateForWorker(`Job #${jobId} marked complete. Waiting on customer to confirm.`, workerRecord);
-  await sendSMS(workerRecord.phone, doneMsg);
+  await sendSMS(workerRecord.phone, doneMsg, marketNumber);
 
   // Send to customer
   try {
-    await sendSMS(customerRecord.phone, `${workerFirstName} says the job is done (Job #${jobId}). Happy with the work? Reply YES to release your $${confirmedPrice} payment, or NO if you have a concern.`);
+    await sendSMS(customerRecord.phone, `${workerFirstName} says the job is done (Job #${jobId}). Happy with the work? Reply YES to release your $${confirmedPrice} payment, or NO if you have a concern.`, marketNumber);
   } catch (err) {
     console.error('Failed to send completion notice to customer:', err.message);
   }
@@ -298,7 +299,7 @@ async function handleDone(workerRecord, customerRecord) {
   return { reply: null, action: 'done' };
 }
 
-async function handleFreeText(workerRecord, customerRecord, inboundText) {
+async function handleFreeText(workerRecord, customerRecord, inboundText, marketNumber) {
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Contractor';
   const workerFirstName = workerName.split(' ')[0];
 
@@ -333,7 +334,7 @@ Set flag to "human" if you cannot resolve it.`;
 
   if (!jsonMatch) {
     const fallbackMsg = await translateForWorker("Got it - let me check on that. Text " + process.env.MY_CELL_NUMBER + " if you need immediate help.", workerRecord);
-    await sendSMS(workerRecord.phone, fallbackMsg);
+    await sendSMS(workerRecord.phone, fallbackMsg, marketNumber);
     return { reply: null, action: 'parse_error' };
   }
 
@@ -342,10 +343,10 @@ Set flag to "human" if you cannot resolve it.`;
   if (parsed.flag === 'human') {
     await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR EXCEPTION - ${workerRecord.phone}: ${inboundText}`);
     const localizedReply = await translateForWorker(parsed.reply, workerRecord);
-    await sendSMS(workerRecord.phone, localizedReply);
+    await sendSMS(workerRecord.phone, localizedReply, marketNumber);
   } else {
     const localizedReply = await translateForWorker(parsed.reply, workerRecord);
-    await sendSMS(workerRecord.phone, localizedReply);
+    await sendSMS(workerRecord.phone, localizedReply, marketNumber);
   }
 
   return { reply: parsed.reply, action: 'ai_response', flag: parsed.flag };

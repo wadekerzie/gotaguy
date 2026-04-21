@@ -42,6 +42,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
   try {
     const from = req.body.From;
+    const inboundTo = req.body.To || process.env.TWILIO_PHONE_NUMBER;
     const body = req.body.Body || '';
     const trimmedBody = body.trim().toUpperCase();
     const mediaUrl = req.body.MediaUrl0 || null;
@@ -55,7 +56,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
     if (trimmedBody === 'HELP') {
-      await sendSMS(from, `GotaGuy home repair. Reply with what needs fixing or call/text ${process.env.MY_CELL_NUMBER} for help.`);
+      await sendSMS(from, `GotaGuy home repair. Reply with what needs fixing or call/text ${process.env.MY_CELL_NUMBER} for help.`, inboundTo);
       return;
     }
     if (trimmedBody === 'UNSTOP' || trimmedBody === 'START') {
@@ -82,7 +83,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
             data: { first_message: body, flagged_at: now, source: 'inbound_sms' }
           })
           .eq('phone', from);
-        await sendSMS(from, "Sounds like you might be one of the skilled tradespeople we work with. We'll pass your info to our team and someone will be in touch with you shortly.");
+        await sendSMS(from, "Sounds like you might be one of the skilled tradespeople we work with. We'll pass your info to our team and someone will be in touch with you shortly.", inboundTo);
         await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR LEAD - ${from} - ${body}`);
         return;
       }
@@ -113,7 +114,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         }
 
         const ambiguousReply = "Hey - are you looking to get something fixed around the house, or are you a tradesperson looking to pick up jobs in Collin County?";
-        await sendSMS(from, ambiguousReply);
+        await sendSMS(from, ambiguousReply, inboundTo);
         await updateCustomer(from, 'new', null, ambiguousReply, {});
         return;
       }
@@ -150,7 +151,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // --- Worker lead returning ---
     if (type === 'worker' && record.status === 'lead') {
-      await sendSMS(from, "We already have your info - someone from GotaGuy will be in touch soon.");
+      await sendSMS(from, "We already have your info - someone from GotaGuy will be in touch soon.", inboundTo);
       return;
     }
 
@@ -160,17 +161,17 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       if (record.status === 'pending_stripe' && (trimmedBody === 'EN' || trimmedBody === 'ES' || trimmedBody === 'LISTO')) {
         if (trimmedBody === 'EN') {
           await updateWorker(from, record.status, body, 'Got it - we will text you in English.', { language_preference: 'en' });
-          await sendSMS(from, 'Got it - we will text you in English.');
+          await sendSMS(from, 'Got it - we will text you in English.', inboundTo);
           return;
         }
         if (trimmedBody === 'ES') {
           await updateWorker(from, record.status, body, 'Perfecto. Te enviaremos los trabajos en español. Nota importante: todos nuestros clientes hablan inglés. Es necesario que alguien en tu equipo pueda comunicarse en inglés en el trabajo. Reply LISTO when you understand.', { language_preference: 'es' });
-          await sendSMS(from, 'Perfecto. Te enviaremos los trabajos en español. Nota importante: todos nuestros clientes hablan inglés. Es necesario que alguien en tu equipo pueda comunicarse en inglés en el trabajo. Reply LISTO when you understand.');
+          await sendSMS(from, 'Perfecto. Te enviaremos los trabajos en español. Nota importante: todos nuestros clientes hablan inglés. Es necesario que alguien en tu equipo pueda comunicarse en inglés en el trabajo. Reply LISTO when you understand.', inboundTo);
           return;
         }
         if (trimmedBody === 'LISTO') {
           await updateWorker(from, record.status, body, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.', {});
-          await sendSMS(from, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.');
+          await sendSMS(from, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.', inboundTo);
           return;
         }
       }
@@ -178,12 +179,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       // BUSY/AVAILABLE toggle
       if (trimmedBody === 'BUSY') {
         await updateWorker(from, 'busy', body, "Got it, you won't receive job cards until you text AVAILABLE.", {});
-        await sendSMS(from, "Got it, you won't receive job cards until you text AVAILABLE.");
+        await sendSMS(from, "Got it, you won't receive job cards until you text AVAILABLE.", inboundTo);
         return;
       }
       if (trimmedBody === 'AVAILABLE') {
         await updateWorker(from, 'active', body, "You're back on. Job cards will resume immediately.", {});
-        await sendSMS(from, "You're back on. Job cards will resume immediately.");
+        await sendSMS(from, "You're back on. Job cards will resume immediately.", inboundTo);
         return;
       }
 
@@ -199,7 +200,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         try {
           customerRecord = await getCustomerByShortId(commandJobId);
         } catch (err) {
-          await sendSMS(from, `We can't find job #${commandJobId}. Double-check the number and try again.`);
+          await sendSMS(from, `We can't find job #${commandJobId}. Double-check the number and try again.`, inboundTo);
           return;
         }
       } else if (commandKeyword === 'CLAIM') {
@@ -230,7 +231,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
           customerRecord = myJobs[0];
         } else if (myJobs.length > 1) {
           const jobList = myJobs.map(j => `#${j.short_id || '?'}`).join(', ');
-          await sendSMS(from, `You have multiple active jobs (${jobList}) - please include the job number, e.g. ${commandKeyword} ${myJobs[0].short_id || '0000'}.`);
+          await sendSMS(from, `You have multiple active jobs (${jobList}) - please include the job number, e.g. ${commandKeyword} ${myJobs[0].short_id || '0000'}.`, inboundTo);
           return;
         }
       } else {
@@ -248,7 +249,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         }
       }
 
-      const result = await runContractorAgent(record, customerRecord, body);
+      const result = await runContractorAgent(record, customerRecord, body, inboundTo);
 
       // Update worker comms
       const outMsg = result.reply || '';
@@ -263,13 +264,13 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       if (trimmedBody === 'CANCEL') {
         const shortId = record.short_id || '????';
         await updateCustomer(from, 'closed', 'CANCEL', null, {});
-        await sendSMS(from, `Job #${shortId} has been cancelled. Text us anytime you need help with something around the house.`);
+        await sendSMS(from, `Job #${shortId} has been cancelled. Text us anytime you need help with something around the house.`, inboundTo);
         await sendSMS(process.env.MY_CELL_NUMBER, `WAITLIST CANCEL - Job #${shortId} - ${from} cancelled while waitlisted.`);
         console.log(`Waitlisted job #${shortId} cancelled by customer ${from}`);
         return;
       }
       // Any other text — holding message
-      await sendSMS(from, "We're still working on finding a pro for your job. We'll text you as soon as someone's available. Reply CANCEL if you'd like to cancel.");
+      await sendSMS(from, "We're still working on finding a pro for your job. We'll text you as soon as someone's available. Reply CANCEL if you'd like to cancel.", inboundTo);
       await updateCustomer(from, 'waitlisted', body, "We're still working on finding a pro for your job. We'll text you as soon as someone's available. Reply CANCEL if you'd like to cancel.", {});
       return;
     }
@@ -279,18 +280,18 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     if (STALLED_STATUSES.includes(record.status) && (record.data.reminders_sent || 0) > 0 && trimmedBody === 'NO') {
       const optOutMsg = "Got it — we won't follow up on this one. Text us anytime you need help down the road.";
       await updateCustomer(from, 'closed', 'NO', optOutMsg, { opted_out: true });
-      await sendSMS(from, optOutMsg);
+      await sendSMS(from, optOutMsg, inboundTo);
       return;
     }
 
     console.log('[yes-debug] status=' + record.status + ' body=' + trimmedBody);
     // YES/NO handling when customer status is complete or price_locked
     if ((record.status === 'complete' || record.status === 'price_locked') && trimmedBody === 'YES') {
-      await handleYes(record, from);
+      await handleYes(record, from, inboundTo);
       return;
     }
     if ((record.status === 'complete' || record.status === 'price_locked') && trimmedBody === 'NO') {
-      await handleNo(record, from);
+      await handleNo(record, from, inboundTo);
       return;
     }
 
@@ -301,7 +302,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
       if (isAck || !needsHelp) {
         const holdingMsg = "You're all set - we'll be in touch!";
-        await sendSMS(from, holdingMsg);
+        await sendSMS(from, holdingMsg, inboundTo);
         await updateCustomer(from, record.status, body, holdingMsg, {});
         return;
       }
@@ -324,9 +325,9 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     if (flag === 'human') {
       await sendSMS(process.env.MY_CELL_NUMBER, `EXCEPTION - ${from}: ${body}`);
       const humanMsg = "You've been connected with our team. Someone will text you shortly.";
-      await sendSMS(from, isFirstMessage ? humanMsg + tosNotice : humanMsg);
+      await sendSMS(from, isFirstMessage ? humanMsg + tosNotice : humanMsg, inboundTo);
     } else {
-      await sendSMS(from, isFirstMessage ? reply + tosNotice : reply);
+      await sendSMS(from, isFirstMessage ? reply + tosNotice : reply, inboundTo);
     }
 
     const additionalData = {};
@@ -387,13 +388,13 @@ router.post('/', validateTwilioSignature, async (req, res) => {
   }
 });
 
-async function handleYes(customerRecord, from) {
+async function handleYes(customerRecord, from, marketNumber) {
   try {
     const invoice = (customerRecord.data && customerRecord.data.invoice) || {};
     const paymentIntentId = invoice.stripe_payment_intent_id;
 
     if (!paymentIntentId) {
-      await sendSMS(from, "We're having trouble finding your payment info. Text us at " + process.env.MY_CELL_NUMBER + " for help.");
+      await sendSMS(from, "We're having trouble finding your payment info. Text us at " + process.env.MY_CELL_NUMBER + " for help.", marketNumber);
       return;
     }
 
@@ -413,7 +414,7 @@ async function handleYes(customerRecord, from) {
     } catch (err) {
       console.log('[handleYes] capture ERROR:', err.message);
       console.error('Stripe capture failed:', err.message);
-      await sendSMS(from, "There was an issue processing your payment. We're looking into it - text " + process.env.MY_CELL_NUMBER + " if you need help.");
+      await sendSMS(from, "There was an issue processing your payment. We're looking into it - text " + process.env.MY_CELL_NUMBER + " if you need help.", marketNumber);
       await sendSMS(process.env.MY_CELL_NUMBER, `CAPTURE FAILED - ${from} - PI: ${paymentIntentId} - ${err.message}`);
       return;
     }
@@ -460,7 +461,7 @@ async function handleYes(customerRecord, from) {
 
     // Send receipt to customer
     try {
-      await sendSMS(from, `Payment of $${confirmedPrice} confirmed for Job #${jobId}. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`);
+      await sendSMS(from, `Payment of $${confirmedPrice} confirmed for Job #${jobId}. Thanks for using GotaGuy - we hope to be your go-to for anything around the house.`, marketNumber);
     } catch (err) {
       console.error('Failed to send receipt SMS:', err.message);
     }
@@ -468,7 +469,7 @@ async function handleYes(customerRecord, from) {
     // Send Google review request to customer
     if (process.env.GOOGLE_REVIEW_LINK) {
       try {
-        await sendSMS(from, `Thank you for using GotaGuy! If your pro did a great job, a quick review would mean the world to us: ${process.env.GOOGLE_REVIEW_LINK}`);
+        await sendSMS(from, `Thank you for using GotaGuy! If your pro did a great job, a quick review would mean the world to us: ${process.env.GOOGLE_REVIEW_LINK}`, marketNumber);
       } catch (err) {
         console.error('Failed to send Google review SMS:', err.message);
       }
@@ -478,7 +479,7 @@ async function handleYes(customerRecord, from) {
     if (worker) {
       try {
         const payoutMsg = await translateForWorker(`Job #${jobId} closed. $${payoutAmount} is on its way to your debit card. Nice work.`, worker);
-        await sendSMS(worker.phone, payoutMsg);
+        await sendSMS(worker.phone, payoutMsg, marketNumber);
       } catch (err) {
         console.error('Failed to send payout SMS:', err.message);
       }
@@ -490,7 +491,7 @@ async function handleYes(customerRecord, from) {
   }
 }
 
-async function handleNo(customerRecord, from) {
+async function handleNo(customerRecord, from, marketNumber) {
   try {
     const invoice = (customerRecord.data && customerRecord.data.invoice) || {};
     const confirmedPrice = invoice.confirmed_price || 0;
@@ -508,7 +509,7 @@ async function handleNo(customerRecord, from) {
       }
     }
 
-    await sendSMS(from, "No problem - what's the concern? We want to make sure you're satisfied before releasing payment.");
+    await sendSMS(from, "No problem - what's the concern? We want to make sure you're satisfied before releasing payment.", marketNumber);
 
     const jobId = customerRecord.short_id || '????';
     await sendSMS(process.env.MY_CELL_NUMBER, `DISPUTE - ${from} - Job #${jobId} - ${jobCategory} - $${confirmedPrice} - ${contractorName}`);
@@ -532,7 +533,7 @@ async function handleNo(customerRecord, from) {
         const worker = await getWorkerById(workerId);
         if (worker) {
           const workerMsg = await translateForWorker(`The customer has raised a concern about Job #${jobId}. Payment is on hold while we look into it. We'll be in touch shortly.`, worker);
-          await sendSMS(worker.phone, workerMsg);
+          await sendSMS(worker.phone, workerMsg, marketNumber);
         }
       } catch (err) {
         console.error('[handleNo] Failed to notify contractor of dispute:', err.message);

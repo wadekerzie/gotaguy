@@ -5,11 +5,11 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-async function sendSMS(to, body) {
+async function sendSMS(to, body, from = process.env.TWILIO_PHONE_NUMBER) {
   try {
     const message = await client.messages.create({
       body,
-      from: process.env.TWILIO_PHONE_NUMBER,
+      from,
       to,
     });
     console.log(`SMS sent to ${to}: ${body.substring(0, 50)}`);

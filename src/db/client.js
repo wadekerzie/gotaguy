@@ -193,6 +193,21 @@ async function getActiveWorkersByTradeAndZip(trade, zipCodes, marketId) {
   }
 }
 
+async function getMarketById(id) {
+  try {
+    const { data, error } = await supabase
+      .from('markets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(`getMarketById error: ${error.message}`);
+    return data || null;
+  } catch (err) {
+    console.error('getMarketById error:', err.message);
+    return null;
+  }
+}
+
 async function getMarketByZip(zip) {
   try {
     const { data, error } = await supabase
@@ -310,5 +325,6 @@ module.exports.getCustomerByPhone = getCustomerByPhone;
 module.exports.getWorkerById = getWorkerById;
 module.exports.generateShortId = generateShortId;
 module.exports.getCustomerByShortId = getCustomerByShortId;
+module.exports.getMarketById = getMarketById;
 module.exports.getMarketByZip = getMarketByZip;
 module.exports.getMarketByTwilioNumber = getMarketByTwilioNumber;
