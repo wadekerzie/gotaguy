@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getWorkerByPhone } = require('../db/client');
+const { getWorkerByPhone, getMarketByTwilioNumber } = require('../db/client');
 const supabase = require('../db/client');
 const { COLLIN_COUNTY_ZIPS, TRADES, LICENSED_TRADES } = require('../utils/constants');
 
@@ -16,7 +16,7 @@ function requireAdminKey(req, res, next) {
 
 router.post('/contractors', requireAdminKey, async (req, res) => {
   try {
-    const { name, trade, phone } = req.body;
+    const { name, trade, phone, market_id, zip_codes } = req.body;
 
     // Validation
     if (!name || typeof name !== 'string' || name.length < 2 || name.length > 50) {
@@ -35,16 +35,29 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
       return res.status(409).json({ error: 'Worker with this phone already exists' });
     }
 
+    // Resolve market_id — explicit > McKinney default
+    let resolvedMarketId = market_id || null;
+    if (!resolvedMarketId) {
+      const mckinney = await getMarketByTwilioNumber(process.env.TWILIO_PHONE_NUMBER);
+      if (mckinney) resolvedMarketId = mckinney.id;
+    }
+
+    // Zip codes: explicit in body > McKinney defaults
+    const resolvedZips = Array.isArray(zip_codes) && zip_codes.length > 0
+      ? zip_codes
+      : COLLIN_COUNTY_ZIPS;
+
     // Create worker record
     const { data: worker, error: createErr } = await supabase
       .from('workers')
       .insert({
         phone,
         status: 'pending_stripe',
+        market_id: resolvedMarketId,
         data: {
           name,
           trade,
-          zip_codes: COLLIN_COUNTY_ZIPS,
+          zip_codes: resolvedZips,
           onboarding: {
             tier: 1,
             license_required: LICENSED_TRADES.includes(trade),

@@ -166,29 +166,63 @@ async function updateWorker(phone, status, newMessageIn, newMessageOut, addition
   }
 }
 
-async function getActiveWorkersByTradeAndZip(trade, zipCodes) {
+async function getActiveWorkersByTradeAndZip(trade, zipCodes, marketId) {
   try {
     // Only returns active workers — workers with status 'busy' are excluded
-    const { data, error } = await supabase
-      .from('workers')
-      .select('*')
-      .eq('status', 'active');
+    let query = supabase.from('workers').select('*').eq('status', 'active');
+    if (marketId) {
+      query = query.eq('market_id', marketId);
+    }
+    const { data, error } = await query;
 
     if (error) throw new Error(`getActiveWorkersByTradeAndZip error: ${error.message}`);
     if (!data) return [];
 
-    console.log(`[dispatch match] job trade: "${trade}" | zip(s): ${zipCodes.join(',')} | active workers: ${data.length}`);
+    console.log(`[dispatch match] job trade: "${trade}" | zip(s): ${zipCodes.join(',')} | market: ${marketId || 'any'} | active workers: ${data.length}`);
     return data.filter(worker => {
       const workerTrade = worker.data && worker.data.trade;
       const workerZips = (worker.data && worker.data.zip_codes) || [];
       const tradeMatch = workerTrade && (workerTrade.toLowerCase() === 'general' || workerTrade.toLowerCase() === trade.toLowerCase());
       const zipMatch = zipCodes.some(zip => workerZips.includes(zip));
-      console.log(`  worker ${worker.id} trade: "${workerTrade}" zips: [${workerZips.join(',')}] tradeMatch: ${tradeMatch} zipMatch: ${zipMatch}`);
+      console.log(`  worker ${worker.id} trade: "${workerTrade}" market: ${worker.market_id || 'none'} zips: [${workerZips.join(',')}] tradeMatch: ${tradeMatch} zipMatch: ${zipMatch}`);
       return tradeMatch && zipMatch;
     });
   } catch (err) {
     console.error('getActiveWorkersByTradeAndZip error:', err.message);
     throw err;
+  }
+}
+
+async function getMarketByZip(zip) {
+  try {
+    const { data, error } = await supabase
+      .from('markets')
+      .select('*')
+      .contains('zip_codes', [zip])
+      .eq('active', true)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`getMarketByZip error: ${error.message}`);
+    return data || null;
+  } catch (err) {
+    console.error('getMarketByZip error:', err.message);
+    return null;
+  }
+}
+
+async function getMarketByTwilioNumber(number) {
+  try {
+    const { data, error } = await supabase
+      .from('markets')
+      .select('*')
+      .eq('twilio_number', number)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) throw new Error(`getMarketByTwilioNumber error: ${error.message}`);
+    return data || null;
+  } catch (err) {
+    console.error('getMarketByTwilioNumber error:', err.message);
+    return null;
   }
 }
 
@@ -276,3 +310,5 @@ module.exports.getCustomerByPhone = getCustomerByPhone;
 module.exports.getWorkerById = getWorkerById;
 module.exports.generateShortId = generateShortId;
 module.exports.getCustomerByShortId = getCustomerByShortId;
+module.exports.getMarketByZip = getMarketByZip;
+module.exports.getMarketByTwilioNumber = getMarketByTwilioNumber;

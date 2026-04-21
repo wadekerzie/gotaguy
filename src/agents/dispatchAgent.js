@@ -1,4 +1,4 @@
-const { getActiveWorkersByTradeAndZip, updateCustomer } = require('../db/client');
+const { getActiveWorkersByTradeAndZip, updateCustomer, getMarketByZip } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { translateForWorker } = require('../services/translate');
 const { ZIP_TO_CITY } = require('../utils/constants');
@@ -28,10 +28,15 @@ async function dispatchJob(customerRecord) {
       return;
     }
 
-    const workers = await getActiveWorkersByTradeAndZip(trade, [zip]);
+    const market = await getMarketByZip(zip);
+    if (!market) {
+      console.warn(`[dispatchJob] No market found for zip ${zip} — dispatching without market filter`);
+    }
+
+    const workers = await getActiveWorkersByTradeAndZip(trade, [zip], market ? market.id : null);
 
     if (workers.length === 0) {
-      console.log(`No workers available for ${trade} in ${zip} - waitlisting`);
+      console.log(`No workers available for ${trade} in ${zip} (market: ${market ? market.name : 'unknown'}) - waitlisting`);
       const now = new Date().toISOString();
       const shortId = customerRecord.short_id || '????';
 
@@ -123,7 +128,8 @@ async function retryDispatch(customerRecord) {
       // retryDispatch will not reach this point on a healthy job.
     }
 
-    const workers = await getActiveWorkersByTradeAndZip(trade, [zip]);
+    const market = await getMarketByZip(zip);
+    const workers = await getActiveWorkersByTradeAndZip(trade, [zip], market ? market.id : null);
 
     if (workers.length === 0) {
       // Still no match — increment retry count
