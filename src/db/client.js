@@ -180,11 +180,14 @@ async function getActiveWorkersByTradeAndZip(trade, zipCodes, marketId) {
 
     console.log(`[dispatch match] job trade: "${trade}" | zip(s): ${zipCodes.join(',')} | market: ${marketId || 'any'} | active workers: ${data.length}`);
     return data.filter(worker => {
-      const workerTrade = worker.data && worker.data.trade;
+      // Support trades[] array (new) with fallback to legacy trade string
+      const workerTrades = (Array.isArray(worker.data && worker.data.trades) && worker.data.trades.length > 0)
+        ? worker.data.trades
+        : (worker.data && worker.data.trade ? [worker.data.trade] : []);
       const workerZips = (worker.data && worker.data.zip_codes) || [];
-      const tradeMatch = workerTrade && (workerTrade.toLowerCase() === 'general' || workerTrade.toLowerCase() === trade.toLowerCase());
+      const tradeMatch = workerTrades.some(t => t.toLowerCase() === 'general' || t.toLowerCase() === trade.toLowerCase());
       const zipMatch = zipCodes.some(zip => workerZips.includes(zip));
-      console.log(`  worker ${worker.id} trade: "${workerTrade}" market: ${worker.market_id || 'none'} zips: [${workerZips.join(',')}] tradeMatch: ${tradeMatch} zipMatch: ${zipMatch}`);
+      console.log(`  worker ${worker.id} trades: [${workerTrades.join(',')}] market: ${worker.market_id || 'none'} zips: [${workerZips.join(',')}] tradeMatch: ${tradeMatch} zipMatch: ${zipMatch}`);
       return tradeMatch && zipMatch;
     });
   } catch (err) {

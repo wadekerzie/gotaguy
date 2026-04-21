@@ -1,201 +1,261 @@
 # GotaGuy Market Operations Playbook
 
 Single source of truth for all geographic expansion operations. Each operation is a
-strict checklist. A future Claude Code session can execute any operation by reading
-this file and filling in the config block at the start of each operation.
+strict numbered checklist. A future Claude Code session can execute any operation by
+reading this file and filling in the config block at the start of each section.
+
+**Before executing any operation**, read the architecture context section below in full.
 
 ---
 
-## System Architecture Context
+## Architecture Context
 
-Before executing any operation, understand these architectural facts:
+### Database (Supabase)
 
-**Database (Supabase)**
-- `markets` table: canonical list of active markets (added in migration 002)
-- `workers` table: has `market_id UUID REFERENCES markets(id)` top-level column
-- `workers.data.zip_codes TEXT[]`: zip codes stored inside JSONB — the set of zips a worker can receive jobs for
-- Dispatch filters by `market_id` AND `data.zip_codes` overlap (belt + suspenders)
+| Table | Relevant columns |
+|-------|-----------------|
+| `markets` | `id UUID PK`, `name TEXT`, `twilio_number TEXT UNIQUE`, `zip_codes TEXT[]`, `domain TEXT`, `active BOOLEAN DEFAULT true`, `created_at TIMESTAMPTZ` |
+| `workers` | `market_id UUID REFERENCES markets(id)` (top-level column, added migration 002) |
+| `workers.data` JSONB | `data.zip_codes TEXT[]`, `data.trade TEXT`, `data.name TEXT`, `data.business_name TEXT`, `data.language_preference TEXT` |
 
-**Dispatch flow**
-`dispatchAgent.js` → `getMarketByZip(zip)` → `getActiveWorkersByTradeAndZip(trade, zips, marketId)`
-A worker must have matching `market_id` AND contain the job zip in `data.zip_codes` to receive a job card.
+The `customers` table has NO `market_id` column. Market is inferred at runtime from the
+customer's address ZIP via `getMarketByZip(zip)` in `src/db/client.js`.
 
-**Inbound SMS routing**
-All markets share one Express webhook at `/sms`. Twilio routes each number's inbound messages to that same URL. The `req.body.To` field contains the Twilio number that received the message — this is how the market is identified at the application layer.
+### Dispatch flow (`src/agents/dispatchAgent.js`)
 
-**Outbound SMS limitation (known)**
-`src/services/twilio.js` currently sends all outbound SMS from `process.env.TWILIO_PHONE_NUMBER` (the McKinney number). Until a per-market `sendSMS` is implemented, customers in new markets will receive replies from the McKinney number. Operations below flag exactly where this matters. Do not launch a production market without resolving this.
+```
+dispatchJob(customerRecord)
+  → extract zip from customerRecord.data.contact.address
+  → getMarketByZip(zip)          ← queries markets WHERE zip_codes @> ARRAY[zip] AND active = true
+  → getActiveWorkersByTradeAndZip(trade, [zip], market.id)
+       ← DB filter: workers.status = 'active' AND workers.market_id = marketId (when provided)
+       ← JS filter: data.trade match AND data.zip_codes overlap with job zip
+```
 
-**Valid trade values** (must match exactly — these are the canonical strings in `src/utils/constants.js`):
+A worker must satisfy BOTH the `market_id` DB filter AND the `data.zip_codes` JS filter
+to receive a job card. This is belt-and-suspenders — one check alone is not sufficient.
+
+### Inbound SMS routing (`src/routes/sms.js`)
+
+```js
+const from    = req.body.From;                                    // caller's number
+const inboundTo = req.body.To || process.env.TWILIO_PHONE_NUMBER; // Twilio number that received the SMS
+```
+
+All markets share one webhook URL (`/sms`). The `req.body.To` field is how the application
+knows which market's number was texted. All outbound replies use `inboundTo` as the `from`
+parameter so replies come from the same number.
+
+### Outbound SMS (`src/services/twilio.js`)
+
+```js
+async function sendSMS(to, body, from = process.env.TWILIO_PHONE_NUMBER)
+```
+
+The `from` parameter defaults to `TWILIO_PHONE_NUMBER` (McKinney primary). All customer-
+and contractor-facing call sites that are market-aware pass the correct market number
+explicitly. Admin alerts to `MY_CELL_NUMBER` always use the default.
+
+### Worker onboarding (`src/agents/welcomeContractor.js`)
+
+```js
+async function welcomeContractor(workerRecord)
+```
+
+Fields read from `workerRecord`:
+
+| Field | Used for |
+|-------|---------|
+| `workerRecord.phone` | Outbound SMS recipient, `updateWorker` lookup key |
+| `workerRecord.status` | Passed to `updateWorker` |
+| `workerRecord.market_id` | Looked up via `getMarketById()` to resolve correct outbound Twilio number |
+| `workerRecord.data.name` | Greeting ("Hey {firstName}") |
+| `workerRecord.data.business_name` | Alternate intro if contractor represents a business |
+
+Three SMS messages are sent in sequence (3-second delay between each):
+1. Welcome/intro (uses `data.name`, `data.business_name`)
+2. Stripe Express onboarding link — or fallback "We'll send you a setup link shortly" + admin alert to `MY_CELL_NUMBER` if Stripe fails
+3. Language preference: `"One quick question - what language do you prefer for job notifications? Reply EN for English or ES for Spanish."`
+
+Worker record is updated with `status: 'pending_stripe'` at creation (set by admin API).
+Worker becomes eligible for dispatch only when `status = 'active'` (set automatically by
+`/stripe/connect/return` webhook after Stripe Express onboarding completes).
+
+### Valid trade values (must match exactly — canonical strings in `src/utils/constants.js`)
+
 `electrical` `plumbing` `hvac` `handyman` `drywall` `painting` `sprinkler` `garage_door` `pool` `pest_control` `landscaping` `appliance` `fence`
 
-**Migration naming**: migrations live in `migrations/` and are named `NNN_description.sql`. The next available number is `003`.
+### Migration naming
+
+Migrations live in `migrations/` and are named `NNN_description.sql`.  
+Current highest: `002_markets.sql`. Next available: `003`.
 
 ---
 
 ## OPERATION 1 — Add a New Market
 
-### Config block
+### Config block (fill this in before executing)
 
 ```
-MARKET_NAME:      <human-readable name, e.g. "Aurora">
-TWILIO_NUMBER:    <E.164 format, e.g. "+17208213271">
-DOMAIN:           <domain for terms link, e.g. "gotaguyaurora.com">
-ZIP_CODES:        <comma-separated 5-digit strings, e.g. "80010, 80011, 80012">
-ZIP_TO_CITY_MAP:  <json object mapping each zip to its city name,
-                   e.g. {"80010": "Aurora", "80011": "Aurora"}>
+Market name:     [human-readable, e.g. "Denver"]
+Twilio number:   [E.164, e.g. "+13031234567"]
+Domain:          [e.g. "gotaguydenver.com"]
+Zip codes:       [comma-separated 5-digit strings, e.g. "80201, 80202, 80203"]
+.env key name:   [e.g. "TWILIO_DENVER_NUMBER"]
 ```
 
 ### Checklist
 
-**Step 1 — Twilio: configure inbound webhook**
+**Step 1 — Confirm Twilio number is purchased and webhook is configured**
+
 - Log in to console.twilio.com
-- Navigate to the phone number TWILIO_NUMBER
-- Under "Messaging → A message comes in", set:
+- Confirm the number is purchased and active under Phone Numbers → Manage
+- Navigate to the number → Messaging configuration
+- Set "A message comes in" to:
   - Webhook URL: `https://gotaguy-production.up.railway.app/sms`
-  - HTTP method: HTTP POST
+  - HTTP method: `HTTP POST`
 - Save
-- Confirm: send a test SMS to TWILIO_NUMBER from a non-registered phone → Railway logs should show `Inbound SMS from +1XXXXXXXXXX: <body>`
+- Guard rail: do NOT set a different webhook URL per market — all markets share `/sms`
 
-**Step 2 — Supabase: insert market row**
+**Step 2 — Add .env key on Railway**
 
-No new migration file is required — the markets table already exists. Run this SQL
-in the Supabase SQL editor (`https://supabase.com/dashboard/project/mtizeqvlxlatybdvboji/sql`):
+- Open Railway dashboard → GotaGuy project → Variables
+- Add: `[.env key name]` = `[Twilio number in E.164 format]`
+  - Example: `TWILIO_AURORA_NUMBER` = `+17208213271`
+- This env var is informational/operational reference. Outbound routing uses the value
+  stored in the `markets.twilio_number` DB column, not this env var directly.
+- Deploy is not required for this step alone.
+
+**Step 3 — Run migration to insert the market row**
+
+Create `migrations/003_[market_name_lowercase]_market.sql` (or the next available number):
 
 ```sql
+-- Migration 003: Add [Market name] market
 INSERT INTO markets (name, twilio_number, zip_codes, domain)
 VALUES (
-  '<MARKET_NAME>',
-  '<TWILIO_NUMBER>',
-  ARRAY['<zip1>', '<zip2>', '<zip3>'],   -- fill in all zips from config
-  '<DOMAIN>'
+  '[Market name]',
+  '[Twilio number]',
+  ARRAY['[zip1]', '[zip2]', '[zip3]'],   -- all zips from config block
+  '[domain]'
 )
 ON CONFLICT (twilio_number) DO NOTHING;
-
--- Verify the row was created and capture the id
-SELECT id, name, twilio_number, zip_codes, active
-FROM markets
-WHERE twilio_number = '<TWILIO_NUMBER>';
 ```
 
-Copy the returned `id` UUID — you will need it in Step 5.
+Apply by pasting into the Supabase SQL editor:
+`https://supabase.com/dashboard/project/mtizeqvlxlatybdvboji/sql`
 
-**Step 3 — Code: update `src/utils/constants.js` `ZIP_TO_CITY` map**
+Note: `ON CONFLICT (twilio_number) DO NOTHING` is a safety net only — do not rely on it
+to re-run migrations. Each migration should be applied exactly once.
 
-Add each new zip → city mapping to the `ZIP_TO_CITY` object. This controls what
-city name appears on job cards sent to contractors.
-
-```js
-// Add inside ZIP_TO_CITY = { ... }
-'<zip1>': '<city>',
-'<zip2>': '<city>',
-```
-
-Do NOT modify `COLLIN_COUNTY_ZIPS` — that is the McKinney default and must not change.
-
-**Step 4 — Code: resolve outbound SMS sender**
-
-Current limitation: `src/services/twilio.js` `sendSMS()` sends from `process.env.TWILIO_PHONE_NUMBER` (McKinney) for all markets. Before going live with a new market, the per-market `from` number must be wired in. This requires a code change — defer to a separate ticket or session. Do not skip this step for a production market.
-
-**Step 5 — .env: no changes required for routing**
-
-The webhook URL is the same for all markets. Twilio routes by number, the app resolves by Supabase lookup. No new env vars are needed for the market itself.
-
-However, confirm the following are already set in the Railway environment:
-- `TWILIO_ACCOUNT_SID` — must be the account that owns TWILIO_NUMBER
-- `TWILIO_AUTH_TOKEN` — same account
-- `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` — unchanged
-
-**Step 6 — Commit and deploy**
-
-```bash
-git add src/utils/constants.js
-git commit -m "feat: add <MARKET_NAME> zip codes to ZIP_TO_CITY"
-git push
-```
-
-Force-deploy if auto-deploy is slow:
-```bash
-git commit --allow-empty -m "force deploy $(date)" && git push
-```
-
-Verify deploy: `GET https://gotaguy-production.up.railway.app/health` → returns new commit SHA.
-
-### Confirmation checks (all must pass)
+**Step 4 — Verify the market row in Supabase**
 
 ```sql
--- 1. Market row exists and is active
 SELECT id, name, twilio_number, active, array_length(zip_codes, 1) AS zip_count
 FROM markets
-WHERE twilio_number = '<TWILIO_NUMBER>';
--- Expected: 1 row, active = true, zip_count = <expected number>
+WHERE twilio_number = '[Twilio number]';
+-- Expected: 1 row, active = true, zip_count = expected number of zips
+```
 
--- 2. No other market shares any of the new zip codes (overlap = leakage risk)
+Copy the returned `id` UUID — needed for contractor onboarding (Operation 3).
+
+Also confirm no zip overlap with existing markets:
+
+```sql
 SELECT m.name, unnest(m.zip_codes) AS zip
 FROM markets m
-WHERE unnest(m.zip_codes) = ANY(ARRAY['<zip1>', '<zip2>'])  -- fill in all new zips
-  AND m.twilio_number != '<TWILIO_NUMBER>';
+WHERE unnest(m.zip_codes) = ANY(ARRAY['[zip1]', '[zip2]'])
+  AND m.twilio_number != '[Twilio number]';
 -- Expected: 0 rows
 ```
 
-- Send a test inbound SMS to TWILIO_NUMBER → Railway log shows `Inbound SMS from ...`
-- No existing McKinney contractors appear in a dispatch query for any new market zip (verify in Step 2 above)
+**Step 5 — Send a test SMS to confirm webhook fires**
+
+Text the new Twilio number from any non-registered phone with a test message (e.g., "test").
+Confirm in Railway logs:
+```
+Inbound SMS from +1XXXXXXXXXX: test
+```
+The inbound number will be classified as a homeowner and a reply should come back from
+the new Twilio number (not the McKinney number).
+
+**Step 6 — Update `ZIP_TO_CITY` in `src/utils/constants.js`**
+
+Add each new zip → city name mapping. This controls what city name appears on job cards.
+
+```js
+// Add inside the ZIP_TO_CITY object
+'[zip1]': '[City]',
+'[zip2]': '[City]',
+```
+
+Commit and deploy:
+```bash
+git add src/utils/constants.js migrations/003_[market]_market.sql
+git commit -m "feat: add [Market name] market"
+git push
+```
 
 ### Do NOT touch
 
-- `COLLIN_COUNTY_ZIPS` in constants.js
-- Any existing market rows
+- `COLLIN_COUNTY_ZIPS` in `constants.js` — McKinney default list, must not change
+- Any existing `markets` rows or their `zip_codes` arrays
 - Any existing worker `market_id` values
 - The `/sms` webhook URL (shared across all markets)
-- `TWILIO_PHONE_NUMBER` env var (McKinney primary number)
+- `TWILIO_PHONE_NUMBER` env var (McKinney primary number, used as default fallback)
+- The `002_markets.sql` migration file
 
 ---
 
 ## OPERATION 2 — Add Zip Codes to an Existing Market
 
-### Config block
+### Config block (fill this in before executing)
 
 ```
-MARKET_NAME:      <name of the existing market, e.g. "Aurora">
-NEW_ZIP_CODES:    <comma-separated 5-digit strings to add, e.g. "80020, 80021">
-ZIP_TO_CITY_MAP:  <json object mapping each NEW zip to its city name>
+Market name:          [must match markets.name exactly, case-sensitive]
+New zip codes to add: [comma-separated 5-digit strings, e.g. "80020, 80021"]
 ```
 
 ### Checklist
 
-**Step 1 — Supabase: append zips to the market row**
+**Step 1 — Confirm the market exists**
 
 ```sql
--- Append new zips without duplicates
+SELECT id, name, active, array_length(zip_codes, 1) AS current_zip_count
+FROM markets
+WHERE name = '[Market name]';
+-- Expected: 1 row, active = true
+-- If 0 rows: the name does not match exactly — check capitalization
+```
+
+**Step 2 — Append new zips to the market row (no overwrite)**
+
+```sql
+-- Append without duplicates using array_cat + DISTINCT unnest
 UPDATE markets
 SET zip_codes = (
   SELECT array_agg(DISTINCT z ORDER BY z)
-  FROM unnest(zip_codes || ARRAY['<zip1>', '<zip2>']) AS z
+  FROM unnest(zip_codes || ARRAY['[zip1]', '[zip2]']) AS z
 )
-WHERE name = '<MARKET_NAME>';
+WHERE name = '[Market name]';
 
 -- Verify
-SELECT name, zip_codes
+SELECT name, zip_codes, array_length(zip_codes, 1) AS zip_count
 FROM markets
-WHERE name = '<MARKET_NAME>';
+WHERE name = '[Market name]';
 ```
 
-**Step 2 — Code: update `ZIP_TO_CITY` in `src/utils/constants.js`**
-
-Add the new zip → city entries to the `ZIP_TO_CITY` object.
-
-If the market is McKinney, also add the zips to `COLLIN_COUNTY_ZIPS` (the McKinney
-default list used when creating contractors without explicit zip_codes).
+Guard rail: the `||` operator appends; `array_agg(DISTINCT ...)` deduplicates. This
+pattern is safe to re-run — duplicate zips will not be created.
 
 **Step 3 — Update contractors who should cover the new zips**
 
-By default, no existing contractor will receive jobs in the new zips — `data.zip_codes`
-on each worker is set at onboarding time and is not automatically expanded. To add new
-zips to existing contractors, run this SQL for each affected contractor (or use a bulk
-update if all contractors in the market should cover the new zips):
+`data.zip_codes` on each worker is set at onboarding and is NOT automatically expanded
+when the market's `zip_codes` array grows. Workers only receive jobs for zips in their
+own `data.zip_codes`. To expand coverage for all active workers in the market:
 
 ```sql
--- Add new zips to every active worker in the market
+-- Add new zips to every active or busy worker in the market
 UPDATE workers
 SET data = jsonb_set(
   data,
@@ -205,103 +265,108 @@ SET data = jsonb_set(
     FROM (
       SELECT jsonb_array_elements_text(data->'zip_codes') AS z
       UNION
-      SELECT unnest(ARRAY['<zip1>', '<zip2>']) AS z
+      SELECT unnest(ARRAY['[zip1]', '[zip2]']) AS z
     ) t
   )
 )
-WHERE market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
+WHERE market_id = (SELECT id FROM markets WHERE name = '[Market name]')
   AND status IN ('active', 'busy');
 
--- Verify one worker to confirm
+-- Verify a sample worker
 SELECT id, phone, data->'zip_codes' AS zip_codes
 FROM workers
-WHERE market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
+WHERE market_id = (SELECT id FROM markets WHERE name = '[Market name]')
 LIMIT 3;
 ```
 
-**Step 4 — Commit and deploy**
+**Step 4 — Update `ZIP_TO_CITY` in `src/utils/constants.js`**
+
+Add each new zip → city mapping. If the market is McKinney, also add the zips to the
+`COLLIN_COUNTY_ZIPS` array (used as the default zip list when creating McKinney
+contractors without explicit `zip_codes`).
+
+**Step 5 — Commit and deploy**
 
 ```bash
 git add src/utils/constants.js
-git commit -m "feat: add zips <NEW_ZIP_CODES> to <MARKET_NAME> market"
+git commit -m "feat: add zips [list] to [Market name] market"
 git push
-```
-
-### Confirmation checks
-
-```sql
--- Market has new zips
-SELECT '<zip1>' = ANY(zip_codes) AS has_new_zip
-FROM markets WHERE name = '<MARKET_NAME>';
--- Expected: true
-
--- No cross-market zip overlap
-SELECT m.name, unnest(m.zip_codes) AS zip
-FROM markets m
-WHERE unnest(m.zip_codes) = ANY(ARRAY['<zip1>', '<zip2>'])
-GROUP BY 1, 2
-HAVING count(DISTINCT m.id) > 1;
--- Expected: 0 rows
 ```
 
 ### Do NOT touch
 
-- `twilio_number`, `id`, `name`, `active` on any market row
+- `twilio_number`, `id`, `name`, `active`, `domain` on any market row
 - Contractors in other markets
-- `COLLIN_COUNTY_ZIPS` unless the market is McKinney
+- `COLLIN_COUNTY_ZIPS` unless the market being expanded is McKinney
 
 ---
 
 ## OPERATION 3 — Add a Contractor to a Specific Market
 
-### Config block
+### Config block (fill this in before executing)
 
 ```
-CONTRACTOR_NAME:  <full name, 2-50 characters>
-CONTRACTOR_PHONE: <E.164, e.g. "+17204680020">
-TRADE:            <one of the valid trade values listed in the architecture section>
-MARKET_NAME:      <must match an existing markets.name exactly>
-ZIP_CODES:        <comma-separated — use the market's full zip list unless restricting
-                   the contractor to a sub-area>
-LANGUAGE:         <"en" or "es" — contractor's preferred language>
+Name:                [first last, 2-50 characters]
+Phone:               [E.164, e.g. "+17204680020"]
+Market:              [must match markets.name exactly, case-sensitive]
+Trade:               [one valid trade string from constants.js list above]
+Language preference: [en or es — default en]
+Notes:               [optional]
 ```
 
 ### Checklist
 
-**Step 1 — Get the market's UUID**
+**Step 1 — Confirm market exists and is active**
 
 ```sql
-SELECT id, name, twilio_number, zip_codes
+SELECT id, name, twilio_number, zip_codes, active
 FROM markets
-WHERE name = '<MARKET_NAME>';
+WHERE name = '[Market name]';
+-- Expected: 1 row, active = true
+-- Copy the id UUID for Step 2
 ```
 
-Copy the `id` UUID for use in Step 2.
+If `active = false`: do not proceed. The market must be active before onboarding contractors.
 
 **Step 2 — Create the contractor via the admin API**
 
-The admin API fires `welcomeContractor` automatically (Stripe Express link + onboarding SMS).
+The admin API creates the worker record AND fires `welcomeContractor()` automatically
+(Stripe Express account creation + onboarding link SMS + language preference SMS).
 
 ```bash
 curl -X POST https://gotaguy-production.up.railway.app/admin/contractors \
   -H "Content-Type: application/json" \
   -H "x-admin-key: $ADMIN_SECRET" \
   -d '{
-    "name": "<CONTRACTOR_NAME>",
-    "trade": "<TRADE>",
-    "phone": "<CONTRACTOR_PHONE>",
-    "market_id": "<UUID from Step 1>",
-    "zip_codes": ["<zip1>", "<zip2>"]
+    "name":      "[Name]",
+    "trade":     "[trade]",
+    "phone":     "[Phone]",
+    "market_id": "[UUID from Step 1]",
+    "zip_codes": ["[zip1]", "[zip2]"]
   }'
 ```
 
-Expected response: HTTP 201 with the full worker JSON including `id` and `market_id`.
+Expected response: HTTP 201 with the full worker row JSON.
 
-The contractor is created with `status: 'pending_stripe'`. They become eligible for
-dispatch once `status` is updated to `'active'` (done automatically after Stripe
-Express onboarding completes, or manually via SQL).
+The worker is created with `status: 'pending_stripe'`. The admin API then calls
+`welcomeContractor(workerRecord)` asynchronously (non-blocking on the response).
 
-**Step 3 — Verify the record**
+`welcomeContractor` reads these fields from the worker record:
+
+| Field read | Purpose |
+|-----------|---------|
+| `workerRecord.phone` | All outbound SMS recipient + DB lookup key |
+| `workerRecord.status` | Passed to `updateWorker` |
+| `workerRecord.market_id` | Looked up via `getMarketById()` → resolves correct outbound Twilio number |
+| `workerRecord.data.name` | First message greeting |
+| `workerRecord.data.business_name` | Alternate intro (if set, uses "on behalf of [business_name]") |
+
+Three SMS messages fire in order:
+1. Welcome/intro — sent immediately from the market's Twilio number
+2. Stripe Express onboarding link — `"Add your debit card here - takes about 90 seconds: [url]\n\nOnce that's done I'll send you a sample..."` — or fallback if Stripe fails
+3. Language preference — `"One quick question - what language do you prefer for job notifications? Reply EN for English or ES for Spanish."`
+
+**Step 3 — Verify the worker record in Supabase**
 
 ```sql
 SELECT
@@ -309,58 +374,110 @@ SELECT
   phone,
   status,
   market_id,
-  data->>'name'        AS name,
-  data->>'trade'       AS trade,
-  data->'zip_codes'    AS zip_codes,
-  data->>'language_preference' AS language
+  data->>'name'                  AS name,
+  data->>'trade'                 AS trade,
+  data->'zip_codes'              AS zip_codes,
+  data->>'language_preference'   AS language,
+  data->'onboarding'             AS onboarding
 FROM workers
-WHERE phone = '<CONTRACTOR_PHONE>';
+WHERE phone = '[Phone]';
 ```
 
-Confirm:
-- `market_id` matches the UUID from Step 1
-- `zip_codes` in `data` contains only zips in the target market
-- No McKinney zip codes present if this is a non-McKinney contractor
+**Step 4 — Confirm all four checks pass**
 
-**Step 4 — Dispatch eligibility check**
+**a. Worker row exists with correct market_id**
+```sql
+-- market_id must equal the UUID from Step 1
+SELECT id, market_id FROM workers WHERE phone = '[Phone]';
+```
 
-Run a synthetic dispatch query to confirm the contractor DOES appear for their market
-and does NOT appear for other markets:
+**b. Welcome SMS was sent**
+Check Railway logs for:
+```
+SMS sent to [Phone]: Hey [FirstName] - Wade here.
+```
+Or check Twilio console → Logs → Message logs, filter by the market's Twilio number.
+
+**c. Stripe Express link was generated and texted**
+
+Success path — Railway logs show:
+```
+[welcomeContractor] Creating Stripe Express account for [Phone]
+[welcomeContractor] Stripe Express account created: acct_XXXXXXXX
+[welcomeContractor] Creating account link for acct_XXXXXXXX
+[welcomeContractor] Account link created successfully for acct_XXXXXXXX
+SMS sent to [Phone]: Add your debit card here - takes about 90 seconds: https://connect.stripe.com/...
+```
+
+Failure path (Stripe error) — Railway logs show:
+```
+[welcomeContractor] Stripe setup failed for [Phone] - ...
+SMS sent to [Phone]: We'll send you a setup link shortly - hang tight.
+```
+And an alert SMS fires to `MY_CELL_NUMBER`:
+```
+STRIPE ERROR - could not generate Express link for [Name] [Phone]
+```
+
+**d. Language preference SMS was sent as the third message**
+Railway logs show:
+```
+SMS sent to [Phone]: One quick question - what language do you prefer...
+```
+
+**Step 5 — Verify dispatch eligibility**
+
+Worker starts at `status: 'pending_stripe'`. They are NOT yet eligible for live dispatch
+(dispatch queries filter for `status = 'active'` only). To confirm the record is correct
+and will be eligible once onboarding completes, run:
 
 ```sql
--- Should appear: dispatch for a zip in their market with their trade
-SELECT id, phone, data->>'name' AS name, market_id
+-- Confirm contractor will appear for their market's zips when active
+SELECT id, phone, data->>'name' AS name, market_id, status
 FROM workers
-WHERE status = 'active'                                          -- or pending_stripe during setup
-  AND market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
-  AND data->'zip_codes' @> '["<any zip in market>"]'::jsonb
-  AND data->>'trade' = '<TRADE>';
+WHERE phone = '[Phone]'
+  AND market_id = (SELECT id FROM markets WHERE name = '[Market name]')
+  AND data->'zip_codes' @> '["[any zip in market]"]'::jsonb
+  AND data->>'trade' = '[trade]';
+-- Expected: 1 row
 
--- Should NOT appear: dispatch for a McKinney zip (or any other market zip)
+-- Confirm contractor will NOT appear for zips outside their market
 SELECT id, phone, market_id
 FROM workers
-WHERE phone = '<CONTRACTOR_PHONE>'
-  AND data->'zip_codes' @> '["75069"]'::jsonb;  -- McKinney zip example
--- Expected: 0 rows (unless contractor IS in McKinney)
+WHERE phone = '[Phone]'
+  AND data->'zip_codes' @> '["75069"]'::jsonb;
+-- Expected: 0 rows (unless market IS McKinney)
+```
+
+**Step 6 — Confirm status goes active after Stripe onboarding**
+
+Once the contractor clicks the Stripe link and completes onboarding, the
+`/stripe/connect/return?account_id=acct_XXXXXXXX` webhook fires and sets
+`status = 'active'`. Verify:
+
+```sql
+SELECT status, data->'onboarding'->>'stripe_express_complete' AS stripe_done
+FROM workers
+WHERE phone = '[Phone]';
+-- Expected after onboarding: status = 'active', stripe_done = 'true'
 ```
 
 ### Do NOT touch
 
 - Any existing contractor records
-- The `TRADES` or `LICENSED_TRADES` arrays in constants.js — only add contractors for
-  trades already in those lists; adding new trade types is a separate code change
-- Contractor status — leave at `pending_stripe` until Stripe onboarding completes
+- The `TRADES` or `LICENSED_TRADES` arrays in `constants.js` — only add contractors
+  for trades already in those lists; adding new trade types is a separate code change
+- Worker `status` — leave at `pending_stripe` until Stripe onboarding completes naturally
 
 ---
 
 ## OPERATION 4 — Deactivate a Market
 
-### Config block
+### Config block (fill this in before executing)
 
 ```
-MARKET_NAME:      <name of the market to deactivate>
-TWILIO_NUMBER:    <the market's Twilio number, for reference>
-REASON:           <brief note on why (used in history entries)>
+Market name: [text — must match markets.name exactly]
+Reason:      [brief note, e.g. "shutting down Aurora pilot"]
 ```
 
 ### Checklist
@@ -368,23 +485,54 @@ REASON:           <brief note on why (used in history entries)>
 **Step 1 — Check for in-flight jobs before proceeding**
 
 ```sql
--- Jobs currently in progress in this market's zip codes
 SELECT c.id, c.short_id, c.status, c.phone,
        c.data->'contact'->>'address' AS address
 FROM customers c
 WHERE c.status IN ('dispatched', 'active', 'price_locked', 'complete')
   AND c.data->'contact'->>'address' ~ ANY(
-    SELECT unnest(zip_codes) FROM markets WHERE name = '<MARKET_NAME>'
+    SELECT unnest(zip_codes)::text FROM markets WHERE name = '[Market name]'
   );
 ```
 
 If any rows are returned: resolve or hand off each job manually before continuing.
-Do NOT deactivate a market with active jobs.
+Do NOT set `active = false` with jobs in progress.
 
-**Step 2 — Deactivate all contractors in the market**
+**Step 2 — Set `active = false` on the market row**
 
 ```sql
--- Deactivate workers and append to their history
+UPDATE markets
+SET active = false
+WHERE name = '[Market name]';
+
+-- Verify
+SELECT id, name, active FROM markets WHERE name = '[Market name]';
+-- Expected: active = false
+```
+
+**How `active = false` is respected by dispatch:**
+
+`dispatchAgent.js` calls `getMarketByZip(zip)`, which queries:
+```sql
+SELECT * FROM markets
+WHERE zip_codes @> ARRAY[zip]
+  AND active = true     -- ← this filter excludes the deactivated market
+LIMIT 1
+```
+
+When `active = false`, `getMarketByZip` returns `null`. `dispatchAgent.js` then logs:
+```
+[dispatchJob] No market found for zip XXXXX — dispatching without market filter
+```
+and passes `null` as `marketId` to `getActiveWorkersByTradeAndZip`, which then skips
+the `market_id` DB filter entirely. **This means any active worker whose `data.zip_codes`
+includes a zip in the deactivated market could still receive jobs.**
+
+The hard stop is deactivating the workers in Step 3 — no active workers = no dispatch.
+Setting `active = false` alone is NOT sufficient to prevent dispatch.
+
+**Step 3 — Deactivate all contractors in the market**
+
+```sql
 UPDATE workers
 SET
   status = 'inactive',
@@ -393,102 +541,62 @@ SET
     '{history}',
     coalesce(data->'history', '[]'::jsonb) || jsonb_build_array(
       jsonb_build_object(
-        'ts', now()::text,
-        'agent', 'admin',
-        'action', 'market deactivated: <REASON>'
+        'ts',     now()::text,
+        'agent',  'admin',
+        'action', 'market deactivated: [Reason]'
       )
     )
   )
-WHERE market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
+WHERE market_id = (SELECT id FROM markets WHERE name = '[Market name]')
   AND status NOT IN ('inactive', 'lead');
 
--- Verify
+-- Verify no active workers remain
 SELECT status, count(*) FROM workers
-WHERE market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
+WHERE market_id = (SELECT id FROM markets WHERE name = '[Market name]')
 GROUP BY status;
--- Expected: all rows show inactive (or lead)
+-- Expected: only 'inactive' and/or 'lead' rows
 ```
 
-**Step 3 — Deactivate the market row**
+**Step 4 — Release or park the Twilio number**
 
-```sql
-UPDATE markets
-SET active = false
-WHERE name = '<MARKET_NAME>';
+- Log in to console.twilio.com → Phone Numbers → Manage
+- Navigate to the market's Twilio number
+- Option A (full deactivation): "Release this phone number" — number is returned to Twilio
+- Option B (hold the number): Remove the webhook URL from Messaging configuration
 
--- Verify
-SELECT id, name, active FROM markets WHERE name = '<MARKET_NAME>';
--- Expected: active = false
-```
+Do not leave an active webhook pointed at the server for a deactivated market.
+Inbound texts to an active webhook would still trigger the SMS handler and be classified
+as new homeowner leads.
 
-Once `active = false`, `getMarketByZip` returns null for all zips in this market,
-so `dispatchJob` falls back to no-market-filter mode (logs a warning). To fully
-block dispatch, the contractors being inactive is the hard stop — no active workers =
-no dispatch.
+**Step 5 — Remove zip entries from `ZIP_TO_CITY` in `src/utils/constants.js` (optional)**
 
-**Step 4 — Twilio: release or reassign the phone number**
+If the market will not be reactivated, remove the zip → city mappings to keep the
+codebase clean. If you might reactivate later, leave them in place.
 
-- Log in to console.twilio.com
-- Navigate to the phone number TWILIO_NUMBER
-- Option A (full deactivation): Release the number → "Release this phone number"
-- Option B (hold the number): Remove the webhook URL from the number's SMS configuration
-
-Do not leave an active webhook pointed at the server for a deactivated market —
-inbound texts would still be processed and could confuse the contact resolution flow.
-
-**Step 5 — Code: remove zips from `ZIP_TO_CITY` (optional)**
-
-If the market's zip codes should not appear anywhere in the system (job cards, etc.),
-remove their entries from `ZIP_TO_CITY` in `src/utils/constants.js`. If you might
-reactivate the market later, leave them in place.
-
-**Step 6 — Commit and deploy (if constants.js was changed)**
+**Step 6 — Commit and deploy (only if constants.js was changed)**
 
 ```bash
 git add src/utils/constants.js
-git commit -m "feat: remove <MARKET_NAME> zips from ZIP_TO_CITY (market deactivated)"
+git commit -m "feat: deactivate [Market name] market - remove ZIP_TO_CITY entries"
 git push
 ```
 
-### Confirmation checks
-
-```sql
--- Market is inactive
-SELECT name, active FROM markets WHERE name = '<MARKET_NAME>';
--- Expected: active = false
-
--- No active workers remain in this market
-SELECT count(*) FROM workers
-WHERE market_id = (SELECT id FROM markets WHERE name = '<MARKET_NAME>')
-  AND status = 'active';
--- Expected: 0
-
--- No open jobs remain in market zips
-SELECT count(*) FROM customers c
-WHERE c.status NOT IN ('closed', 'complete')
-  AND EXISTS (
-    SELECT 1 FROM markets m
-    WHERE m.name = '<MARKET_NAME>'
-      AND c.data->'contact'->>'address' ~ (
-        array_to_string(m.zip_codes, '|')
-      )
-  );
--- Expected: 0
-```
+This operation is reversible by setting `active = true` (market row) and updating
+worker statuses back to `active` — no data is deleted.
 
 ### Do NOT touch
 
-- Other markets' rows or contractors
+- Other markets' rows, workers, or customers
 - The `markets` table schema
 - Closed/archived customer records for the deactivated market (preserve for history)
 - `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` env vars
 
 ---
 
-## Reference: markets table schema
+## Reference: markets table schema (from `migrations/002_markets.sql`)
 
 ```sql
-CREATE TABLE markets (
+CREATE TABLE IF NOT EXISTS markets (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   name          TEXT        NOT NULL,
   twilio_number TEXT        NOT NULL UNIQUE,
@@ -499,41 +607,42 @@ CREATE TABLE markets (
 );
 ```
 
-## Reference: workers table market columns
+## Reference: workers market columns (from `migrations/002_markets.sql`)
 
 ```sql
--- Top-level column (first-class FK)
+-- Top-level column on workers table
 market_id UUID REFERENCES markets(id)
 
--- Inside workers.data JSONB (set at contractor creation, not auto-synced)
-data->>'trade'           -- one of the valid TRADES strings
-data->'zip_codes'        -- TEXT[], subset of the market's zip_codes
-data->>'language_preference'  -- 'en' or 'es'
+-- Inside workers.data JSONB
+data->>'trade'                 -- one of the 13 valid TRADES strings
+data->'zip_codes'              -- TEXT[], subset of the market's zip_codes array
+data->>'language_preference'   -- 'en' or 'es' (default 'en')
+data->>'name'                  -- contractor display name
+data->>'business_name'         -- optional, used in welcome SMS
 ```
 
-## Reference: dispatch market filter (src/db/client.js)
-
-```js
-// When marketId is provided, only workers in that market are considered
-let query = supabase.from('workers').select('*').eq('status', 'active');
-if (marketId) {
-  query = query.eq('market_id', marketId);
-}
-// JS filter then checks data.zip_codes overlap and trade match
-```
-
-## Reference: admin API endpoint
+## Reference: admin API endpoint (`src/routes/admin.js`)
 
 ```
 POST /admin/contractors
-Header: x-admin-key: <ADMIN_SECRET>
-Body: {
-  name: string (2-50 chars),
-  trade: string (must be in TRADES),
-  phone: string (E.164 +1XXXXXXXXXX),
-  market_id: UUID (optional — defaults to McKinney if omitted),
-  zip_codes: string[] (optional — defaults to COLLIN_COUNTY_ZIPS if omitted)
-}
+Header: x-admin-key: <ADMIN_SECRET env var>
+Body (JSON):
+  name:       string  (required, 2-50 chars)
+  trade:      string  (required, must be in TRADES array)
+  phone:      string  (required, E.164 +1XXXXXXXXXX)
+  market_id:  UUID    (optional — defaults to McKinney market if omitted)
+  zip_codes:  string[] (optional — defaults to COLLIN_COUNTY_ZIPS if omitted)
 Response 201: full worker row JSON
 Response 409: phone already exists
 ```
+
+Fires `welcomeContractor(workerRecord)` asynchronously after 201 response is sent.
+
+## Reference: sendSMS signature (`src/services/twilio.js`)
+
+```js
+async function sendSMS(to, body, from = process.env.TWILIO_PHONE_NUMBER)
+```
+
+All customer- and contractor-facing call sites pass the market's `twilio_number` as `from`.
+Admin alerts to `MY_CELL_NUMBER` use the default (McKinney number).

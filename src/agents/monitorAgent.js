@@ -1,8 +1,22 @@
 const supabase = require('../db/client');
-const { updateCustomer } = require('../db/client');
+const { updateCustomer, getMarketById, getMarketByZip } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const { TRADES } = require('../utils/constants');
 const { retryDispatch } = require('./dispatchAgent');
+
+async function getMarketNumber(record) {
+  if (record.market_id) {
+    const market = await getMarketById(record.market_id);
+    if (market && market.twilio_number) return market.twilio_number;
+  }
+  const address = (record.data && record.data.contact && record.data.contact.address) || '';
+  const zipMatch = address.match(/\b(\d{5})\b/);
+  if (zipMatch) {
+    const market = await getMarketByZip(zipMatch[1]);
+    if (market && market.twilio_number) return market.twilio_number;
+  }
+  return process.env.TWILIO_PHONE_NUMBER;
+}
 
 function isValidPhone(number) {
   return typeof number === 'string' && /^\+1[2-9]\d{9}$/.test(number);
@@ -99,8 +113,9 @@ async function checkStalledConversations() {
       // First reminder: fires 2+ hours after last activity (already filtered above)
       if (remindersSent === 0) {
         const msg = `Still need help with your ${category} repair? Reply YES to continue or NO to cancel and we'll leave you alone.`;
+        const marketNum = await getMarketNumber(customer);
         try {
-          await sendSMS(customer.phone, msg);
+          await sendSMS(customer.phone, msg, marketNum);
         } catch (err) {
           console.error('Failed to send first reminder:', err.message);
           continue;
@@ -121,8 +136,9 @@ async function checkStalledConversations() {
         if (now < secondAllowedAt) continue;
 
         const msg = `Last check — still need that ${category} repair? Reply YES to continue or NO to close this out.`;
+        const marketNum = await getMarketNumber(customer);
         try {
-          await sendSMS(customer.phone, msg);
+          await sendSMS(customer.phone, msg, marketNum);
         } catch (err) {
           console.error('Failed to send second reminder:', err.message);
           continue;
@@ -184,8 +200,9 @@ async function checkUnclaimedJobs() {
       // Send holding SMS to homeowner (once per job)
       const waitlist = (job.data && job.data.waitlist) || {};
       if (!waitlist.homeowner_notified) {
+        const jobMarketNum = await getMarketNumber(job);
         try {
-          await sendSMS(job.phone, "Still working on confirming your pro. We'll have someone locked in shortly. Reply CANCEL if you'd like to cancel.");
+          await sendSMS(job.phone, "Still working on confirming your pro. We'll have someone locked in shortly. Reply CANCEL if you'd like to cancel.", jobMarketNum);
         } catch (err) {
           console.error('Failed to send homeowner holding SMS:', err.message);
         }
@@ -424,8 +441,9 @@ async function checkPendingStripeFollowup() {
         continue;
       }
 
+      const workerMarketNum = await getMarketNumber(worker);
       try {
-        await sendSMS(worker.phone, `Hey, looks like your GotaGuy setup isn't quite complete. Finish here: ${link}. Takes 5 minutes and you'll start receiving jobs immediately.`);
+        await sendSMS(worker.phone, `Hey, looks like your GotaGuy setup isn't quite complete. Finish here: ${link}. Takes 5 minutes and you'll start receiving jobs immediately.`, workerMarketNum);
       } catch (err) {
         console.error('Failed to send Stripe followup SMS:', err.message);
         continue;
@@ -473,8 +491,9 @@ async function checkThirtyDayFollowup() {
       const invoice = (customer.data && customer.data.invoice) || {};
       if (invoice.followup_sent) continue;
 
+      const followupMarketNum = await getMarketNumber(customer);
       try {
-        await sendSMS(customer.phone, "Hey, it's GotaGuy. Hope everything is still holding up from your repair last month. Anything else need attention around the house? Just text us.");
+        await sendSMS(customer.phone, "Hey, it's GotaGuy. Hope everything is still holding up from your repair last month. Anything else need attention around the house? Just text us.", followupMarketNum);
       } catch (err) {
         console.error('Failed to send 30-day followup SMS:', err.message);
         continue;
@@ -518,8 +537,9 @@ async function checkAppointmentReminders() {
 
       const msg = `Reminder: your ${trade} pro is scheduled for ${window}${address ? ' at ' + address : ''}. Questions? Just reply.`;
 
+      const reminderMarketNum = await getMarketNumber(job);
       try {
-        await sendSMS(job.phone, msg);
+        await sendSMS(job.phone, msg, reminderMarketNum);
       } catch (err) {
         console.error('Failed to send appointment reminder:', err.message);
         continue;

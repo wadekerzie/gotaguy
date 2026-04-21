@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getStripe } = require('../services/stripe');
-const { updateWorker } = require('../db/client');
+const { updateWorker, getMarketById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
 const supabase = require('../db/client');
 
@@ -28,7 +28,8 @@ router.get('/return', async (req, res) => {
     const worker = workers[0];
     const name = (worker.data && worker.data.name) || 'there';
     const firstName = name.split(' ')[0];
-    const trade = (worker.data && worker.data.trade) || 'home repair';
+    const trade = (worker.data && worker.data.trades && worker.data.trades[0]) ||
+                  (worker.data && worker.data.trade) || 'home repair';
 
     // Update worker: onboarding.stripe_express_complete = true, status = active
     await updateWorker(worker.phone, 'active', null, null, {
@@ -49,9 +50,20 @@ router.get('/return', async (req, res) => {
 
     // Send sample job card SMS
     try {
+      const workerMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
+      const workerMarketNumber = (workerMarket && workerMarket.twilio_number) || undefined;
+      let marketName = 'McKinney';
+      let sampleZip = '75069';
+      if (workerMarket && workerMarket.name && workerMarket.zip_codes && workerMarket.zip_codes[0]) {
+        marketName = workerMarket.name;
+        sampleZip = workerMarket.zip_codes[0];
+      } else if (worker.market_id) {
+        console.warn(`[stripeConnect] market lookup failed for worker ${worker.phone} market_id ${worker.market_id} — using McKinney fallback`);
+      }
       await sendSMS(
         worker.phone,
-        `You're all set ${firstName}. When a job comes in matching your area you'll get a text like this:\n\n${trade} repair - McKinney 75069\nWindow: Tue 4-7pm\nReply CLAIM to take it\n\nThat's it. We'll be in touch.`
+        `You're all set ${firstName}. When a job comes in matching your area you'll get a text like this:\n\n${trade} repair - ${marketName} ${sampleZip}\nWindow: Tue 4-7pm\nReply CLAIM to take it\n\nThat's it. We'll be in touch.`,
+        workerMarketNumber
       );
     } catch (err) {
       console.error('Failed to send onboarding complete SMS:', err.message);
@@ -93,7 +105,10 @@ router.get('/refresh', async (req, res) => {
         .eq('data->>stripe_account_id', accountId);
 
       if (workers && workers.length > 0) {
-        await sendSMS(workers[0].phone, `Your setup link expired - here's a fresh one: ${accountLink.url}`);
+        const refreshWorker = workers[0];
+        const refreshMarket = refreshWorker.market_id ? await getMarketById(refreshWorker.market_id) : null;
+        const refreshMarketNumber = (refreshMarket && refreshMarket.twilio_number) || undefined;
+        await sendSMS(refreshWorker.phone, `Your setup link expired - here's a fresh one: ${accountLink.url}`, refreshMarketNumber);
       }
     } catch (err) {
       console.error('Failed to SMS refresh link:', err.message);

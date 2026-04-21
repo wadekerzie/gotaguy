@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getWorkerByPhone, getMarketByTwilioNumber } = require('../db/client');
+const { getWorkerByPhone, getMarketByTwilioNumber, getMarketById } = require('../db/client');
 const supabase = require('../db/client');
 const { COLLIN_COUNTY_ZIPS, TRADES, LICENSED_TRADES } = require('../utils/constants');
 
@@ -16,15 +16,27 @@ function requireAdminKey(req, res, next) {
 
 router.post('/contractors', requireAdminKey, async (req, res) => {
   try {
-    const { name, trade, phone, market_id, zip_codes } = req.body;
+    const { name, trade, trades, phone, market_id, zip_codes } = req.body;
 
     // Validation
     if (!name || typeof name !== 'string' || name.length < 2 || name.length > 50) {
       return res.status(400).json({ error: 'name is required and must be 2-50 characters' });
     }
-    if (!trade || !TRADES.includes(trade)) {
-      return res.status(400).json({ error: `trade is required and must be one of: ${TRADES.join(', ')}` });
+
+    // Accept single string (trade) or array (trades) — normalize to array
+    let resolvedTrades;
+    if (Array.isArray(trades) && trades.length > 0) {
+      resolvedTrades = trades;
+    } else if (typeof trade === 'string' && trade.length > 0) {
+      resolvedTrades = [trade];
+    } else {
+      return res.status(400).json({ error: `trade or trades is required. Must be one or more of: ${TRADES.join(', ')}` });
     }
+    const invalidTrades = resolvedTrades.filter(t => !TRADES.includes(t));
+    if (invalidTrades.length > 0) {
+      return res.status(400).json({ error: `Invalid trade(s): ${invalidTrades.join(', ')}. Must be one of: ${TRADES.join(', ')}` });
+    }
+
     if (!phone || !/^\+1\d{10}$/.test(phone)) {
       return res.status(400).json({ error: 'phone is required in E.164 format (+1XXXXXXXXXX)' });
     }
@@ -56,11 +68,11 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
         market_id: resolvedMarketId,
         data: {
           name,
-          trade,
+          trades: resolvedTrades,
           zip_codes: resolvedZips,
           onboarding: {
             tier: 1,
-            license_required: LICENSED_TRADES.includes(trade),
+            license_required: resolvedTrades.some(t => LICENSED_TRADES.includes(t)),
             license_verified: false,
             stripe_express_complete: false,
             jobs_completed: 0,
@@ -86,7 +98,7 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
       console.warn('welcomeContractor not yet available:', err.message);
     }
 
-    console.log(`Admin created worker: ${name} (${trade}) ${phone}`);
+    console.log(`Admin created worker: ${name} (${resolvedTrades.join(',')}) ${phone}`);
     return res.status(201).json(worker);
   } catch (err) {
     console.error('Admin contractor creation error:', err.message);
@@ -120,7 +132,9 @@ router.post('/contractors/:id/deactivate', requireAdminKey, async (req, res) => 
 
     try {
       const { sendSMS } = require('../services/twilio');
-      await sendSMS(worker.phone, 'Your GotaGuy account has been deactivated. Contact wade@kerzie.ai if you have questions.');
+      const deactivateMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
+      const deactivateMarketNumber = (deactivateMarket && deactivateMarket.twilio_number) || undefined;
+      await sendSMS(worker.phone, 'Your GotaGuy account has been deactivated. Contact wade@kerzie.ai if you have questions.', deactivateMarketNumber);
     } catch (err) {
       console.error('Failed to send deactivation SMS:', err.message);
     }

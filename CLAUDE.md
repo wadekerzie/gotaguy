@@ -55,13 +55,21 @@ SMS-first home repair marketplace for Collin County TX. Homeowners text one numb
 }
 ```
 
+## workers.data trade field
+- New workers store trades as `data.trades` (JSON array, e.g. `["electrical","plumbing"]`)
+- Legacy McKinney workers store a single string at `data.trade`
+- `getActiveWorkersByTradeAndZip` in db/client.js handles both: checks `data.trades[]` first,
+  falls back to `[data.trade]` if `data.trades` is absent — existing contractors are unaffected
+- Admin POST /contractors accepts `trade` (string) or `trades` (array); both normalize to `trades[]`
+
 ## Critical routing rules in sms.js
-- STOP/HELP/UNSTOP handled first (lines 52-63)
+- STOP/HELP/UNSTOP handled first
 - resolveContact returns null only for unknown numbers OR `closed` status (NOT `complete`)
 - Worker flow handled before customer flow
 - `waitlisted` customers: only CANCEL works, else holding message
 - `price_locked` OR `complete` + YES → handleYes (payment capture)
-- `price_locked` OR `complete` + NO → handleNo (dispute)
+- `price_locked` OR `complete` + NO → handleNo (dispute + PaymentIntent cancel + contractor notified)
+- `dispatched/active/price_locked` free text: simple acks → holding template; cancel/reschedule/help/? → runCustomerAgent
 - All other customer SMS → runCustomerAgent
 
 ## Stripe payment flow
