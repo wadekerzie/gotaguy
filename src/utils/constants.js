@@ -110,6 +110,9 @@ const SUPPORTED_LANGUAGES = ['en', 'es'];
 
 const PLATFORM_NAME = 'GotaGuy';
 
+// Path appended to market.domain to build market-aware contractor TOS URL
+const CONTRACTOR_TOS_PATH = '/contractor-terms.html';
+
 module.exports = {
   COLLIN_COUNTY_ZIPS,
   ZIP_TO_CITY,
@@ -120,4 +123,5 @@ module.exports = {
   CONTRACTOR_COMMANDS,
   SUPPORTED_LANGUAGES,
   PLATFORM_NAME,
+  CONTRACTOR_TOS_PATH,
 };

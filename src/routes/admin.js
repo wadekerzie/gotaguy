@@ -64,7 +64,7 @@ router.post('/contractors', requireAdminKey, async (req, res) => {
       .from('workers')
       .insert({
         phone,
-        status: 'pending_stripe',
+        status: 'pending_tos',
         market_id: resolvedMarketId,
         data: {
           name,

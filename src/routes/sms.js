@@ -12,6 +12,7 @@ const { getStripe } = require('../services/stripe');
 const { calculateFee } = require('../utils/fees');
 const { classifyContact } = require('../utils/classifier');
 const { translateForWorker } = require('../services/translate');
+const { sendStripeOnboarding } = require('../agents/welcomeContractor');
 const supabase = require('../db/client');
 
 // Twilio signature validation middleware
@@ -66,6 +67,31 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // Resolve contact
     let resolved = await resolveContact(from);
+
+    // --- AGREE handling — must come before all other routing so it is never
+    //     passed to the AI classifier ---
+    if (trimmedBody === 'AGREE') {
+      if (!resolved || resolved.type !== 'worker') {
+        await sendSMS(from, "We don't have an application on file for this number. Questions? Text HELP.", inboundTo);
+        return;
+      }
+      const agreeWorker = resolved.record;
+      if (agreeWorker.status !== 'pending_tos') {
+        await sendSMS(from, "You're already set up! Text HELP if you need anything.", inboundTo);
+        return;
+      }
+      // Log TOS agreement and advance to pending_stripe
+      const agreedAt = new Date().toISOString();
+      await supabase
+        .from('workers')
+        .update({ tos_agreed: true, tos_agreed_at: agreedAt, status: 'pending_stripe' })
+        .eq('phone', from);
+      await updateWorker(from, 'pending_stripe', body, null, {});
+      console.log(`TOS agreed by ${from} at ${agreedAt}`);
+      const updatedWorker = { ...agreeWorker, tos_agreed: true, tos_agreed_at: agreedAt, status: 'pending_stripe' };
+      sendStripeOnboarding(updatedWorker).catch(err => console.error('sendStripeOnboarding error:', err.message));
+      return;
+    }
 
     // --- New contact (unknown number) ---
     if (!resolved) {
@@ -157,6 +183,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
 
     // --- Worker flow ---
     if (type === 'worker') {
+      // pending_tos workers must reply AGREE before anything else proceeds
+      if (record.status === 'pending_tos') {
+        await sendSMS(from, "Please reply AGREE to accept our Contractor Terms of Service and continue setup, or STOP to opt out.", inboundTo);
+        return;
+      }
+
       // Language preference during onboarding (pending_stripe status)
       if (record.status === 'pending_stripe' && (trimmedBody === 'EN' || trimmedBody === 'ES' || trimmedBody === 'LISTO')) {
         if (trimmedBody === 'EN') {

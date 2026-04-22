@@ -339,7 +339,7 @@ curl -X POST https://gotaguy-production.up.railway.app/admin/contractors \
   -H "x-admin-key: $ADMIN_SECRET" \
   -d '{
     "name":      "[Name]",
-    "trade":     "[trade]",
+    "trades":    ["[trade1]", "[trade2]"],
     "phone":     "[Phone]",
     "market_id": "[UUID from Step 1]",
     "zip_codes": ["[zip1]", "[zip2]"]
@@ -438,7 +438,7 @@ FROM workers
 WHERE phone = '[Phone]'
   AND market_id = (SELECT id FROM markets WHERE name = '[Market name]')
   AND data->'zip_codes' @> '["[any zip in market]"]'::jsonb
-  AND data->>'trade' = '[trade]';
+  AND data->'trades' @> '["[trade]"]'::jsonb;
 -- Expected: 1 row
 
 -- Confirm contractor will NOT appear for zips outside their market
@@ -614,12 +614,16 @@ CREATE TABLE IF NOT EXISTS markets (
 market_id UUID REFERENCES markets(id)
 
 -- Inside workers.data JSONB
-data->>'trade'                 -- one of the 13 valid TRADES strings
+data->'trades'                 -- string[], one or more of the 13 valid TRADES strings
 data->'zip_codes'              -- TEXT[], subset of the market's zip_codes array
 data->>'language_preference'   -- 'en' or 'es' (default 'en')
 data->>'name'                  -- contractor display name
 data->>'business_name'         -- optional, used in welcome SMS
 ```
+
+Note: legacy McKinney workers created before this change store a single string at
+`data->>'trade'`. Dispatch handles both — `data.trades[]` is checked first, then
+`data.trade` as fallback. All new workers created via the admin API use `data.trades[]`.
 
 ## Reference: admin API endpoint (`src/routes/admin.js`)
 
@@ -627,10 +631,11 @@ data->>'business_name'         -- optional, used in welcome SMS
 POST /admin/contractors
 Header: x-admin-key: <ADMIN_SECRET env var>
 Body (JSON):
-  name:       string  (required, 2-50 chars)
-  trade:      string  (required, must be in TRADES array)
-  phone:      string  (required, E.164 +1XXXXXXXXXX)
-  market_id:  UUID    (optional — defaults to McKinney market if omitted)
+  name:       string   (required, 2-50 chars)
+  trades:     string[] (required, one or more values from TRADES array)
+              — also accepts trade: string for backwards compatibility (wrapped to array internally)
+  phone:      string   (required, E.164 +1XXXXXXXXXX)
+  market_id:  UUID     (optional — defaults to McKinney market if omitted)
   zip_codes:  string[] (optional — defaults to COLLIN_COUNTY_ZIPS if omitted)
 Response 201: full worker row JSON
 Response 409: phone already exists
