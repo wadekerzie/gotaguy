@@ -12,6 +12,7 @@ const { getStripe } = require('../services/stripe');
 const { calculateFee } = require('../utils/fees');
 const { classifyContact } = require('../utils/classifier');
 const { translateForWorker } = require('../services/translate');
+const { MSG_SCHEDULE_PROMPT, GOOGLE_REVIEW_URL_MCKINNEY, MSG_REVIEW_REQUEST } = require('../utils/constants');
 const { sendStripeOnboarding } = require('../agents/welcomeContractor');
 const supabase = require('../db/client');
 
@@ -362,6 +363,11 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       await sendSMS(from, isFirstMessage ? reply + tosNotice : reply, inboundTo);
     }
 
+    // Deterministic scheduling prompt — sent directly, never through the AI pipeline
+    if (record.status === 'quoting' && newStatus === 'scheduling') {
+      await sendSMS(from, MSG_SCHEDULE_PROMPT, inboundTo);
+    }
+
     const additionalData = {};
     if (permanentMediaUrl) {
       const photos = (record.data && record.data.photos) || [];
@@ -498,13 +504,11 @@ async function handleYes(customerRecord, from, marketNumber) {
       console.error('Failed to send receipt SMS:', err.message);
     }
 
-    // Send Google review request to customer
-    if (process.env.GOOGLE_REVIEW_LINK) {
-      try {
-        await sendSMS(from, `Thank you for using GotaGuy! If your pro did a great job, a quick review would mean the world to us: ${process.env.GOOGLE_REVIEW_LINK}`, marketNumber);
-      } catch (err) {
-        console.error('Failed to send Google review SMS:', err.message);
-      }
+    // Send Google review request to customer — deterministic, fires on every confirmed payment
+    try {
+      await sendSMS(from, MSG_REVIEW_REQUEST(GOOGLE_REVIEW_URL_MCKINNEY), marketNumber);
+    } catch (err) {
+      console.error('Failed to send Google review SMS:', err.message);
     }
 
     // Send payout confirmation to contractor

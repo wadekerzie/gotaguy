@@ -120,6 +120,11 @@ const MSG_SCHEDULE_PROMPT = "What day works for you? We typically schedule withi
 // If this status name ever changes, update both handleClaim and this constant together
 const STATUS_PENDING_DAY_CONFIRMATION = 'active';
 
+// Post-payment review request — deterministic send, no AI involvement
+const GOOGLE_REVIEW_URL_MCKINNEY = 'https://g.page/r/CVrexW02zXzOEBM/review';
+const MSG_REVIEW_REQUEST = (reviewUrl) =>
+  `Thanks for using GotaGuy! If your experience was great, we'd love a quick review: ${reviewUrl}`;
+
 module.exports = {
   COLLIN_COUNTY_ZIPS,
   ZIP_TO_CITY,
@@ -133,4 +138,6 @@ module.exports = {
   CONTRACTOR_TOS_PATH,
   MSG_SCHEDULE_PROMPT,
   STATUS_PENDING_DAY_CONFIRMATION,
+  GOOGLE_REVIEW_URL_MCKINNEY,
+  MSG_REVIEW_REQUEST,
 };
