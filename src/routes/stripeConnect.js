@@ -69,6 +69,30 @@ router.get('/return', async (req, res) => {
       console.error('Failed to send onboarding complete SMS:', err.message);
     }
 
+    // Check for stale dispatched jobs linked to this contractor
+    try {
+      const { data: staleJobs } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('status', 'dispatched')
+        .filter('data->schedule->>worker_id', 'eq', worker.id);
+
+      if (staleJobs && staleJobs.length > 0) {
+        const staleMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
+        const staleMarketNumber = (staleMarket && staleMarket.twilio_number) || undefined;
+        for (const job of staleJobs) {
+          const jobId = job.short_id || '????';
+          await sendSMS(
+            worker.phone,
+            `You have a pending job ready to go. Job #${jobId} - reply CLAIM ${jobId} to accept it or ignore to pass.`,
+            staleMarketNumber
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[stripeConnect] Failed to check stale dispatched jobs:', err.message);
+    }
+
     console.log(`Stripe Connect onboarding complete for ${worker.phone} (${name})`);
 
     return res.send('<p style="font-family:sans-serif;text-align:center;padding:40px">You\'re all set. We\'ll text you when jobs are available in your area.</p>');
