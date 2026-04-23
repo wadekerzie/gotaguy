@@ -196,4 +196,45 @@ async function retryDispatch(customerRecord) {
   }
 }
 
-module.exports = { dispatchJob, retryDispatch };
+// Sends the standard job card SMS to a single worker. Used when a contractor
+// activates mid-dispatch and needs to be notified about an open job directly.
+async function sendJobCardToWorker(worker, customerRecord, marketTwilioNumber) {
+  const data = customerRecord.data || {};
+  const job = data.job || {};
+  const availability = data.availability || {};
+  const contact = data.contact || {};
+
+  const trade = job.category || 'repair';
+  const address = contact.address || '';
+  const zipMatch = address.match(/\b(\d{5})\b/);
+  const zip = zipMatch ? zipMatch[1] : null;
+  const city = (zip && ZIP_TO_CITY[zip]) || zip || 'Unknown';
+  const description = (job.description || '').substring(0, 80);
+  const window = availability.window || availability.raw || 'TBD';
+  const shortId = customerRecord.short_id || '????';
+  const photos = data.photos || [];
+  const latestPhoto = photos.length > 0 ? photos[photos.length - 1].url : null;
+
+  let priceLow = job.quoted_price_low || 0;
+  let priceHigh = job.quoted_price_high || 0;
+
+  if (!priceLow && !priceHigh) {
+    const comms = data.comms || [];
+    for (const msg of comms) {
+      if (msg.direction === 'out') {
+        const m = (msg.body || '').match(/\$(\d+)[^$]*\$(\d+)/);
+        if (m) {
+          priceLow = parseInt(m[1], 10);
+          priceHigh = parseInt(m[2], 10);
+          break;
+        }
+      }
+    }
+  }
+
+  const jobCard = `Job #${shortId} - ${trade} - ${city}\n${description}\nAvailability: ${window}\nQuoted: $${priceLow}-$${priceHigh}${latestPhoto ? '\nPhoto: ' + latestPhoto : ''}\nReply CLAIM ${shortId} to take it`;
+  const localizedCard = await translateForWorker(jobCard, worker);
+  await sendSMS(worker.phone, localizedCard, marketTwilioNumber);
+}
+
+module.exports = { dispatchJob, retryDispatch, sendJobCardToWorker };

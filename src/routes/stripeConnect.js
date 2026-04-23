@@ -3,6 +3,7 @@ const router = express.Router();
 const { getStripe } = require('../services/stripe');
 const { updateWorker, getMarketById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
+const { sendJobCardToWorker } = require('../agents/dispatchAgent');
 const supabase = require('../db/client');
 
 // GET /stripe/connect/return — contractor completed Stripe Express onboarding
@@ -91,6 +92,35 @@ router.get('/return', async (req, res) => {
       }
     } catch (err) {
       console.error('[stripeConnect] Failed to check stale dispatched jobs:', err.message);
+    }
+
+    // Notify contractor of open unclaimed dispatched jobs matching their trade
+    try {
+      const { data: allDispatched } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('status', 'dispatched');
+
+      const workerTrades = (Array.isArray(worker.data && worker.data.trades) && worker.data.trades.length > 0)
+        ? worker.data.trades
+        : (worker.data && worker.data.trade ? [worker.data.trade] : []);
+
+      const openMatchingJobs = (allDispatched || []).filter(job => {
+        const alreadyClaimed = job.data && job.data.schedule && job.data.schedule.worker_id;
+        if (alreadyClaimed) return false;
+        const jobTrade = job.data && job.data.job && job.data.job.category;
+        return jobTrade && workerTrades.some(t => t.toLowerCase() === jobTrade.toLowerCase());
+      });
+
+      if (openMatchingJobs.length > 0) {
+        const openMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
+        const openMarketNumber = (openMarket && openMarket.twilio_number) || undefined;
+        for (const job of openMatchingJobs) {
+          await sendJobCardToWorker(worker, job, openMarketNumber);
+        }
+      }
+    } catch (err) {
+      console.error('[stripeConnect] Failed to check open dispatched jobs:', err.message);
     }
 
     console.log(`Stripe Connect onboarding complete for ${worker.phone} (${name})`);
