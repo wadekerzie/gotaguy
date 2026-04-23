@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const { loadSystemPrompt } = require('../utils/loadSystemPrompt');
 const supabase = require('../db/client');
 const { updateCustomer, updateWorker } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
@@ -303,11 +304,17 @@ async function handleFreeText(workerRecord, customerRecord, inboundText, marketN
   const workerName = (workerRecord.data && workerRecord.data.name) || 'Contractor';
   const workerFirstName = workerName.split(' ')[0];
 
-  const systemPrompt = `You are the support agent for GotaGuy, texting with a licensed contractor named ${workerFirstName}.
+  const jobContext = customerRecord
+    ? `Current job state: ${customerRecord.status}\nJob ID: ${customerRecord.short_id || 'n/a'}\nJob record: ${JSON.stringify(customerRecord)}`
+    : 'No active job found for this worker. Handle as a general platform question.';
+
+  const base = loadSystemPrompt();
+  const systemPrompt = (base ? base + '\n\n' : '') +
+    `You are the support agent for GotaGuy, texting with a licensed contractor named ${workerFirstName}.
 Keep responses brief and practical - this is SMS.
 The contractor may have questions about a job, their payout, or how the platform works.
 Current worker record: ${JSON.stringify(workerRecord)}
-Current job they are on (if any): ${JSON.stringify(customerRecord || null)}
+${jobContext}
 Answer their question directly. If you cannot answer it, tell them to text ${process.env.MY_CELL_NUMBER}.
 Output format: {"reply": "...", "flag": null}
 Set flag to "human" if you cannot resolve it.`;
