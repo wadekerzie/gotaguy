@@ -159,14 +159,14 @@ async function checkStalledConversations() {
 async function checkUnclaimedJobs() {
   let issues = 0;
   try {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
 
     const { data: unclaimed, error } = await supabase
       .from('customers')
       .select('*')
       .eq('status', 'dispatched')
-      .lt('updated_at', twoHoursAgo);
+      .lt('updated_at', oneHourAgo);
 
     if (error) {
       console.error('Check 2 query error:', error.message);
@@ -202,7 +202,7 @@ async function checkUnclaimedJobs() {
       if (!waitlist.homeowner_notified) {
         const jobMarketNum = await getMarketNumber(job);
         try {
-          await sendSMS(job.phone, "Still working on confirming your pro. We'll have someone locked in shortly. Reply CANCEL if you'd like to cancel.", jobMarketNum);
+          await sendSMS(job.phone, "We're still finding the right contractor for your job. We'll confirm as soon as someone is matched - usually within a few hours.", jobMarketNum);
         } catch (err) {
           console.error('Failed to send homeowner holding SMS:', err.message);
         }
