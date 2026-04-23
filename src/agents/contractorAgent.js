@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { loadSystemPrompt } = require('../utils/loadSystemPrompt');
+const { STATUS_PENDING_DAY_CONFIRMATION } = require('../utils/constants');
 const supabase = require('../db/client');
 const { updateCustomer, updateWorker } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
@@ -23,7 +24,7 @@ async function runContractorAgent(workerRecord, customerRecord, inboundText, mar
       const { data: pendingJobs } = await supabase
         .from('customers')
         .select('*')
-        .eq('status', 'active')
+        .eq('status', STATUS_PENDING_DAY_CONFIRMATION)
         .filter('data->schedule->>worker_id', 'eq', workerRecord.id)
         .filter('data->schedule->>pending_day_confirmation', 'eq', 'true')
         .limit(1);

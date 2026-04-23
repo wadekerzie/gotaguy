@@ -113,6 +113,13 @@ const PLATFORM_NAME = 'GotaGuy';
 // Path appended to market.domain to build market-aware contractor TOS URL
 const CONTRACTOR_TOS_PATH = '/contractor-terms.html';
 
+// Deterministic scheduling prompt — sent directly via Twilio, never through AI
+const MSG_SCHEDULE_PROMPT = "What day works for you? We typically schedule within the next 1-3 days.";
+
+// Job status set by handleClaim when pending_day_confirmation = true
+// If this status name ever changes, update both handleClaim and this constant together
+const STATUS_PENDING_DAY_CONFIRMATION = 'active';
+
 module.exports = {
   COLLIN_COUNTY_ZIPS,
   ZIP_TO_CITY,
@@ -124,4 +131,6 @@ module.exports = {
   SUPPORTED_LANGUAGES,
   PLATFORM_NAME,
   CONTRACTOR_TOS_PATH,
+  MSG_SCHEDULE_PROMPT,
+  STATUS_PENDING_DAY_CONFIRMATION,
 };
