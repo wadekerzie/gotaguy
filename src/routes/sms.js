@@ -13,6 +13,7 @@ const { calculateFee } = require('../utils/fees');
 const { classifyContact } = require('../utils/classifier');
 const { translateForWorker } = require('../services/translate');
 const { MSG_SCHEDULE_PROMPT, GOOGLE_REVIEW_URL_MCKINNEY, MSG_REVIEW_REQUEST } = require('../utils/constants');
+const { notifyJerry } = require('../utils/jerryNotify');
 const { sendStripeOnboarding } = require('../agents/welcomeContractor');
 const supabase = require('../db/client');
 
@@ -91,6 +92,11 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       console.log(`TOS agreed by ${from} at ${agreedAt}`);
       const updatedWorker = { ...agreeWorker, tos_agreed: true, tos_agreed_at: agreedAt, status: 'pending_stripe' };
       sendStripeOnboarding(updatedWorker).catch(err => console.error('sendStripeOnboarding error:', err.message));
+      try {
+        await notifyJerry('WORKER_PENDING_STRIPE', updatedWorker, updatedWorker.market_id || 'unknown');
+      } catch (err) {
+        console.error('Jerry notification failed:', err.message);
+      }
       return;
     }
 
@@ -300,6 +306,11 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         await sendSMS(from, `Job #${shortId} has been cancelled. Text us anytime you need help with something around the house.`, inboundTo);
         await sendSMS(process.env.MY_CELL_NUMBER, `WAITLIST CANCEL - Job #${shortId} - ${from} cancelled while waitlisted.`);
         console.log(`Waitlisted job #${shortId} cancelled by customer ${from}`);
+        try {
+          await notifyJerry('JOB_CANCELLED', record, record.market_id || 'unknown');
+        } catch (err) {
+          console.error('Jerry notification failed:', err.message);
+        }
         return;
       }
       // Any other text — holding message
@@ -454,6 +465,11 @@ async function handleYes(customerRecord, from, marketNumber) {
       console.error('Stripe capture failed:', err.message);
       await sendSMS(from, "There was an issue processing your payment. We're looking into it - text " + process.env.MY_CELL_NUMBER + " if you need help.", marketNumber);
       await sendSMS(process.env.MY_CELL_NUMBER, `CAPTURE FAILED - ${from} - PI: ${paymentIntentId} - ${err.message}`);
+      try {
+        await notifyJerry('PAYMENT_FAILURE', customerRecord, customerRecord.market_id || 'unknown');
+      } catch (notifyErr) {
+        console.error('Jerry notification failed:', notifyErr.message);
+      }
       return;
     }
 

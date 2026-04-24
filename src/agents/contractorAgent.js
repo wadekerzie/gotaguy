@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { loadSystemPrompt } = require('../utils/loadSystemPrompt');
 const { STATUS_PENDING_DAY_CONFIRMATION } = require('../utils/constants');
+const { notifyJerry } = require('../utils/jerryNotify');
 const supabase = require('../db/client');
 const { updateCustomer, updateWorker } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
@@ -114,6 +115,12 @@ async function handleClaim(workerRecord, customerRecord, marketNumber) {
     const msg = await translateForWorker("Sorry - that job was just claimed by someone else.", workerRecord);
     await sendSMS(workerRecord.phone, msg, marketNumber);
     return { reply: null, action: 'race_lost' };
+  }
+
+  try {
+    await notifyJerry('JOB_ACTIVE_STARTED', locked, locked.market_id || 'unknown');
+  } catch (err) {
+    console.error('Jerry notification failed:', err.message);
   }
 
   const customerName = (customerRecord.data.contact && customerRecord.data.contact.name) || 'The customer';
