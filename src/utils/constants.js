@@ -125,12 +125,34 @@ const GOOGLE_REVIEW_URL_MCKINNEY = 'https://g.page/r/CVrexW02zXzOEBM/review';
 const MSG_REVIEW_REQUEST = (reviewUrl) =>
   `Thanks for using GotaGuy! If your experience was great, we'd love a quick review: ${reviewUrl}`;
 
+// Common shorthand → canonical TRADES value (used in pending_trades and RECRUIT flows)
+const TRADE_ALIASES = {
+  'ac': 'hvac',
+  'air conditioning': 'hvac',
+  'air': 'hvac',
+  'gc': 'general',
+  'general contractor': 'general',
+  'plumber': 'plumbing',
+  'electrician': 'electrical',
+  'painter': 'painting',
+  'lawn': 'landscaping',
+  'yard': 'landscaping',
+  'sprinklers': 'sprinkler',
+  'garage': 'garage_door',
+  'garage doors': 'garage_door',
+  'pest': 'pest_control',
+  'appliances': 'appliance',
+  'fencing': 'fence',
+  'fences': 'fence',
+};
+
 module.exports = {
   COLLIN_COUNTY_ZIPS,
   ZIP_TO_CITY,
   TRADES,
   LICENSED_TRADES,
   TRADE_LABELS,
+  TRADE_ALIASES,
   CUSTOMER_STATUSES,
   CONTRACTOR_COMMANDS,
   SUPPORTED_LANGUAGES,

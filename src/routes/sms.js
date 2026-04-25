@@ -5,16 +5,16 @@ const router = express.Router();
 const { resolveContact } = require('../utils/router');
 const { runCustomerAgent } = require('../agents/customerAgent');
 const { runContractorAgent } = require('../agents/contractorAgent');
-const { updateCustomer, updateWorker, createWorker, getCustomerById, getWorkerById, generateShortId, getCustomerByShortId } = require('../db/client');
+const { updateCustomer, updateWorker, createWorker, getCustomerById, getWorkerById, generateShortId, getCustomerByShortId, getMarketById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
-const { dispatchJob } = require('../agents/dispatchAgent');
+const { dispatchJob, sendJobCardToWorker } = require('../agents/dispatchAgent');
 const { getStripe } = require('../services/stripe');
 const { calculateFee } = require('../utils/fees');
 const { classifyContact } = require('../utils/classifier');
 const { translateForWorker } = require('../services/translate');
-const { MSG_SCHEDULE_PROMPT, GOOGLE_REVIEW_URL_MCKINNEY, MSG_REVIEW_REQUEST } = require('../utils/constants');
+const { MSG_SCHEDULE_PROMPT, GOOGLE_REVIEW_URL_MCKINNEY, MSG_REVIEW_REQUEST, TRADES, TRADE_ALIASES, TRADE_LABELS } = require('../utils/constants');
 const { notifyJerry } = require('../utils/jerryNotify');
-const { sendStripeOnboarding } = require('../agents/welcomeContractor');
+const { sendStripeOnboarding, welcomeContractor } = require('../agents/welcomeContractor');
 const supabase = require('../db/client');
 
 // Twilio signature validation middleware
@@ -52,6 +52,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     const mediaType = req.body.MediaContentType0 || null;
 
     console.log(`Inbound SMS from ${from}: ${body}${mediaUrl ? ' [+photo]' : ''}`);
+    console.log('FROM:', JSON.stringify(from), 'MY_CELL:', JSON.stringify(process.env.MY_CELL_NUMBER), 'MATCH:', from === process.env.MY_CELL_NUMBER);
 
     // --- STOP/HELP/START handling (before any routing) ---
     if (trimmedBody === 'STOP') {
@@ -97,6 +98,12 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       } catch (err) {
         console.error('Jerry notification failed:', err.message);
       }
+      return;
+    }
+
+    // --- RECRUIT admin command (admin phone only) ---
+    if (from === process.env.MY_CELL_NUMBER && trimmedBody.startsWith('RECRUIT ')) {
+      await handleRecruit(from, body, inboundTo);
       return;
     }
 
@@ -213,6 +220,107 @@ router.post('/', validateTwilioSignature, async (req, res) => {
           await sendSMS(from, 'Entendido. Estarás listo para recibir trabajos en tu área pronto.', inboundTo);
           return;
         }
+      }
+
+      // pending_trades: contractor is confirming trade selection after Stripe onboarding
+      if (record.status === 'pending_trades') {
+        if (trimmedBody === 'YES') {
+          const pendingTrades = (record.data && record.data.pending_trades_selection) || [];
+          if (pendingTrades.length === 0) {
+            await sendSMS(from, 'Reply with the types of work you do (e.g., plumbing, electrical, hvac). You can list multiple.', inboundTo);
+            return;
+          }
+          await supabase
+            .from('workers')
+            .update({
+              status: 'active',
+              data: { ...record.data, trades: pendingTrades, pending_trades_selection: null },
+            })
+            .eq('phone', from);
+          await sendSMS(from, "You're live. We'll text you when a job matches your skills.", inboundTo);
+
+          // Check for stale dispatched jobs linked to this contractor (relocated from stripeConnect.js)
+          try {
+            const { data: staleJobs } = await supabase
+              .from('customers')
+              .select('*')
+              .eq('status', 'dispatched')
+              .filter('data->schedule->>worker_id', 'eq', record.id);
+
+            if (staleJobs && staleJobs.length > 0) {
+              const staleMarket = record.market_id ? await getMarketById(record.market_id) : null;
+              const staleMarketNumber = (staleMarket && staleMarket.twilio_number) || undefined;
+              for (const job of staleJobs) {
+                const jobId = job.short_id || '????';
+                await sendSMS(
+                  record.phone,
+                  `You have a pending job ready to go. Job #${jobId} - reply CLAIM ${jobId} to accept it or ignore to pass.`,
+                  staleMarketNumber
+                );
+              }
+            }
+          } catch (err) {
+            console.error('[pending_trades] Failed to check stale dispatched jobs:', err.message);
+          }
+
+          // Notify contractor of open unclaimed dispatched jobs matching their trade (relocated from stripeConnect.js)
+          try {
+            const { data: allDispatched } = await supabase
+              .from('customers')
+              .select('*')
+              .eq('status', 'dispatched');
+
+            const workerTrades = (Array.isArray(pendingTrades) && pendingTrades.length > 0)
+              ? pendingTrades
+              : (record.data && record.data.trade ? [record.data.trade] : []);
+
+            const openMatchingJobs = (allDispatched || []).filter(job => {
+              const alreadyClaimed = job.data && job.data.schedule && job.data.schedule.worker_id;
+              if (alreadyClaimed) return false;
+              const jobTrade = job.data && job.data.job && job.data.job.category;
+              return jobTrade && workerTrades.some(t => t.toLowerCase() === jobTrade.toLowerCase());
+            });
+
+            if (openMatchingJobs.length > 0) {
+              const openMarket = record.market_id ? await getMarketById(record.market_id) : null;
+              const openMarketNumber = (openMarket && openMarket.twilio_number) || undefined;
+              for (const job of openMatchingJobs) {
+                await sendJobCardToWorker(record, job, openMarketNumber);
+              }
+            }
+          } catch (err) {
+            console.error('[pending_trades] Failed to check open dispatched jobs:', err.message);
+          }
+
+          return;
+        }
+
+        // Any other text — parse as trade selection
+        const rawTokens = body.toLowerCase().replace(/[,;]+/g, ' ').split(/\s+/).filter(Boolean);
+        const resolvedTrades = [];
+
+        for (const token of rawTokens) {
+          if (TRADES.includes(token)) {
+            if (!resolvedTrades.includes(token)) resolvedTrades.push(token);
+          } else if (TRADE_ALIASES[token]) {
+            const canonical = TRADE_ALIASES[token];
+            if (!resolvedTrades.includes(canonical)) resolvedTrades.push(canonical);
+          }
+        }
+
+        if (resolvedTrades.length === 0) {
+          await sendSMS(from, `We didn't recognize any trades in that. Try: ${TRADES.slice(0, 5).join(', ')}, etc.`, inboundTo);
+          return;
+        }
+
+        await supabase
+          .from('workers')
+          .update({ data: { ...record.data, pending_trades_selection: resolvedTrades } })
+          .eq('phone', from);
+
+        const tradeList = resolvedTrades.map(t => TRADE_LABELS[t] || t).join(', ');
+        await sendSMS(from, `Got it — you do: ${tradeList}. Reply YES to confirm or send a corrected list.`, inboundTo);
+        return;
       }
 
       // BUSY/AVAILABLE toggle
@@ -598,6 +706,62 @@ async function handleNo(customerRecord, from, marketNumber) {
   } catch (err) {
     console.error('handleNo error:', err.message);
   }
+}
+
+async function handleRecruit(adminPhone, rawBody, inboundTo) {
+  // Syntax: RECRUIT <phone> <trade> [name...]
+  const parts = rawBody.trim().split(/\s+/);
+  if (parts.length < 3) {
+    await sendSMS(adminPhone, 'Usage: RECRUIT <phone> <trade> [name]', inboundTo);
+    return;
+  }
+
+  const rawPhone = parts[1].replace(/\D/g, '');
+  if (rawPhone.length !== 10) {
+    await sendSMS(adminPhone, `Invalid phone: "${parts[1]}". Must be 10 digits.`, inboundTo);
+    return;
+  }
+  const e164Phone = '+1' + rawPhone;
+
+  const rawTrade = parts[2].toLowerCase();
+  const resolvedTrade = TRADES.includes(rawTrade) ? rawTrade : (TRADE_ALIASES[rawTrade] || null);
+  if (!resolvedTrade) {
+    await sendSMS(adminPhone, `Unknown trade: "${parts[2]}". Valid: ${TRADES.join(', ')}`, inboundTo);
+    return;
+  }
+
+  const name = parts.slice(3).join(' ') || 'Unknown';
+
+  const { data: existing } = await supabase.from('workers').select('id').eq('phone', e164Phone).maybeSingle();
+  if (existing) {
+    await sendSMS(adminPhone, `Worker ${e164Phone} already exists.`, inboundTo);
+    return;
+  }
+
+  const { data: newWorker, error: insertErr } = await supabase
+    .from('workers')
+    .insert({
+      phone: e164Phone,
+      status: 'pending_tos',
+      data: { name, trades: [resolvedTrade], source: 'recruit' },
+    })
+    .select()
+    .single();
+
+  if (insertErr) {
+    console.error('RECRUIT insert failed:', insertErr.message);
+    await sendSMS(adminPhone, `Failed to add ${e164Phone}: ${insertErr.message}`, inboundTo);
+    return;
+  }
+
+  try {
+    await welcomeContractor(newWorker);
+  } catch (err) {
+    console.error('welcomeContractor error in RECRUIT:', err.message);
+  }
+
+  await sendSMS(adminPhone, `Recruited ${name} (${resolvedTrade}) — TOS sent to ${e164Phone}`, inboundTo);
+  console.log(`Admin recruited worker: ${name} (${resolvedTrade}) ${e164Phone}`);
 }
 
 async function storePhoto(twilioUrl, phone) {

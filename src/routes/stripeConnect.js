@@ -3,7 +3,6 @@ const router = express.Router();
 const { getStripe } = require('../services/stripe');
 const { updateWorker, getMarketById } = require('../db/client');
 const { sendSMS } = require('../services/twilio');
-const { sendJobCardToWorker } = require('../agents/dispatchAgent');
 const supabase = require('../db/client');
 
 // GET /stripe/connect/return — contractor completed Stripe Express onboarding
@@ -29,11 +28,9 @@ router.get('/return', async (req, res) => {
     const worker = workers[0];
     const name = (worker.data && worker.data.name) || 'there';
     const firstName = name.split(' ')[0];
-    const trade = (worker.data && worker.data.trades && worker.data.trades[0]) ||
-                  (worker.data && worker.data.trade) || 'home repair';
 
-    // Update worker: onboarding.stripe_express_complete = true, status = active
-    await updateWorker(worker.phone, 'active', null, null, {
+    // Update worker: onboarding.stripe_express_complete = true, status = pending_trades
+    await updateWorker(worker.phone, 'pending_trades', null, null, {
       onboarding: {
         ...((worker.data && worker.data.onboarding) || {}),
         stripe_express_complete: true,
@@ -43,84 +40,23 @@ router.get('/return', async (req, res) => {
     // Append to history
     const now = new Date().toISOString();
     const history = (worker.data && worker.data.history) || [];
-    history.push({ ts: now, agent: 'stripeConnect', action: 'Express onboarding complete, status set to active' });
+    history.push({ ts: now, agent: 'stripeConnect', action: 'Express onboarding complete, status set to pending_trades' });
     await supabase
       .from('workers')
       .update({ data: { ...worker.data, history, onboarding: { ...((worker.data && worker.data.onboarding) || {}), stripe_express_complete: true } } })
       .eq('id', worker.id);
 
-    // Send sample job card SMS
+    // Prompt contractor to select their trades
     try {
       const workerMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
       const workerMarketNumber = (workerMarket && workerMarket.twilio_number) || undefined;
-      let marketName = 'McKinney';
-      let sampleZip = '75069';
-      if (workerMarket && workerMarket.name && workerMarket.zip_codes && workerMarket.zip_codes[0]) {
-        marketName = workerMarket.name;
-        sampleZip = workerMarket.zip_codes[0];
-      } else if (worker.market_id) {
-        console.warn(`[stripeConnect] market lookup failed for worker ${worker.phone} market_id ${worker.market_id} — using McKinney fallback`);
-      }
       await sendSMS(
         worker.phone,
-        `You're all set ${firstName}. When a job comes in matching your area you'll get a text like this:\n\n${trade} repair - ${marketName} ${sampleZip}\nWindow: Tue 4-7pm\nReply CLAIM to take it\n\nThat's it. We'll be in touch.`,
+        `You're all set ${firstName}! Reply with the types of work you do (e.g., plumbing, electrical, hvac). You can list multiple.`,
         workerMarketNumber
       );
     } catch (err) {
-      console.error('Failed to send onboarding complete SMS:', err.message);
-    }
-
-    // Check for stale dispatched jobs linked to this contractor
-    try {
-      const { data: staleJobs } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('status', 'dispatched')
-        .filter('data->schedule->>worker_id', 'eq', worker.id);
-
-      if (staleJobs && staleJobs.length > 0) {
-        const staleMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
-        const staleMarketNumber = (staleMarket && staleMarket.twilio_number) || undefined;
-        for (const job of staleJobs) {
-          const jobId = job.short_id || '????';
-          await sendSMS(
-            worker.phone,
-            `You have a pending job ready to go. Job #${jobId} - reply CLAIM ${jobId} to accept it or ignore to pass.`,
-            staleMarketNumber
-          );
-        }
-      }
-    } catch (err) {
-      console.error('[stripeConnect] Failed to check stale dispatched jobs:', err.message);
-    }
-
-    // Notify contractor of open unclaimed dispatched jobs matching their trade
-    try {
-      const { data: allDispatched } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('status', 'dispatched');
-
-      const workerTrades = (Array.isArray(worker.data && worker.data.trades) && worker.data.trades.length > 0)
-        ? worker.data.trades
-        : (worker.data && worker.data.trade ? [worker.data.trade] : []);
-
-      const openMatchingJobs = (allDispatched || []).filter(job => {
-        const alreadyClaimed = job.data && job.data.schedule && job.data.schedule.worker_id;
-        if (alreadyClaimed) return false;
-        const jobTrade = job.data && job.data.job && job.data.job.category;
-        return jobTrade && workerTrades.some(t => t.toLowerCase() === jobTrade.toLowerCase());
-      });
-
-      if (openMatchingJobs.length > 0) {
-        const openMarket = worker.market_id ? await getMarketById(worker.market_id) : null;
-        const openMarketNumber = (openMarket && openMarket.twilio_number) || undefined;
-        for (const job of openMatchingJobs) {
-          await sendJobCardToWorker(worker, job, openMarketNumber);
-        }
-      }
-    } catch (err) {
-      console.error('[stripeConnect] Failed to check open dispatched jobs:', err.message);
+      console.error('Failed to send trade selection SMS:', err.message);
     }
 
     console.log(`Stripe Connect onboarding complete for ${worker.phone} (${name})`);

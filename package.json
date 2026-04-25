@@ -20,5 +20,8 @@
     "node-cron": "^4.2.1",
     "stripe": "^21.0.0",
     "twilio": "^5.13.1"
+  },
+  "devDependencies": {
+    "pg": "^8.20.0"
   }
 }

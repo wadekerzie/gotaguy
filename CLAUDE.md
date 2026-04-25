@@ -56,14 +56,20 @@ SMS-first home repair marketplace for Collin County TX. Homeowners text one numb
 ```
 
 ## Worker status machine
-`lead` → `pending_tos` → `pending_stripe` → `active` → `busy` → `inactive`
+`lead` → `pending_tos` → `pending_stripe` → `pending_trades` → `active` → `busy` → `inactive`
 
 - `lead`: inbound contractor SMS, flagged to admin, no onboarding started
-- `pending_tos`: created via admin API, TOS message sent, waiting for AGREE reply
+- `pending_tos`: created via admin API or RECRUIT command, TOS message sent, waiting for AGREE reply
 - `pending_stripe`: TOS agreed, Stripe Express onboarding link sent, waiting for card setup
-- `active`: Stripe onboarding complete, eligible for dispatch
+- `pending_trades`: Stripe onboarding complete, trade selection SMS sent, waiting for contractor to confirm trades
+- `active`: trades confirmed, eligible for dispatch
 - `busy`: self-reported via BUSY command, temporarily excluded from dispatch
 - `inactive`: deactivated
+
+Contractor creation sources:
+- `source: 'admin'` — created via POST /contractors (no trades set, worker selects via pending_trades flow)
+- `source: 'recruit'` — created via RECRUIT SMS command from MY_CELL_NUMBER (trade set at creation)
+- `source: 'inbound_sms'` — self-identified lead via inbound SMS
 
 TOS agreement columns (top-level on workers table, added migration 003):
 - `tos_agreed BOOLEAN DEFAULT false` — set to true when contractor replies AGREE
@@ -72,11 +78,14 @@ TOS agreement columns (top-level on workers table, added migration 003):
 - Backfill: all workers in pending_stripe/active/busy/inactive get tos_agreed=true via migration 003
 
 ## workers.data trade field
-- New workers store trades as `data.trades` (JSON array, e.g. `["electrical","plumbing"]`)
-- Legacy McKinney workers store a single string at `data.trade`
+- Workers store trades as `data.trades` (JSON array, e.g. `["electrical","plumbing"]`)
+  - Admin-created workers: `data.trades` is absent until confirmed via pending_trades flow
+  - RECRUIT-created workers: `data.trades` seeded at creation with the recruited trade
+  - Legacy McKinney workers: single string at `data.trade` (no migration applied)
+- `data.pending_trades_selection`: temp array written when contractor sends a trade list, cleared on YES
 - `getActiveWorkersByTradeAndZip` in db/client.js handles both: checks `data.trades[]` first,
-  falls back to `[data.trade]` if `data.trades` is absent — existing contractors are unaffected
-- Admin POST /contractors accepts `trade` (string) or `trades` (array); both normalize to `trades[]`
+  falls back to `[data.trade]` if `data.trades` is absent — legacy contractors are unaffected
+- TRADE_ALIASES in constants.js maps shorthand (e.g. `'ac'` → `'hvac'`) to canonical TRADES values
 
 ## Critical routing rules in sms.js
 - STOP/HELP/UNSTOP handled first
