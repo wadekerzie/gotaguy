@@ -52,7 +52,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     const mediaType = req.body.MediaContentType0 || null;
 
     console.log(`Inbound SMS from ${from}: ${body}${mediaUrl ? ' [+photo]' : ''}`);
-    console.log('FROM:', JSON.stringify(from), 'MY_CELL:', JSON.stringify(process.env.MY_CELL_NUMBER), 'MATCH:', from === process.env.MY_CELL_NUMBER);
+    console.log('FROM:', JSON.stringify(from), 'MY_CELL:', JSON.stringify(process.env.MY_CELL_NUMBER), 'MATCH:', from === process.env.MY_CELL_NUMBER, 'BODY:', JSON.stringify(trimmedBody));
 
     // --- STOP/HELP/START handling (before any routing) ---
     if (trimmedBody === 'STOP') {
