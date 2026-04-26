@@ -4,7 +4,7 @@ const sentNotifications = new Map();
 
 const notifyJerry = async (trigger, jobOrWorker, market) => {
   if (process.env.JERRY_ENABLED !== 'true') {
-    console.log('Jerry SMS disabled - JERRY_ENABLED kill switch is off');
+    console.log('Jerry SMS suppressed - JERRY_ENABLED=false, no action taken');
     return;
   }
 
