@@ -64,8 +64,8 @@ async function sendStripeOnboarding(workerRecord) {
   // Message 1 — intro and platform explainer
   const businessName = workerRecord.data && workerRecord.data.business_name;
   const msg1 = businessName
-    ? `Hey ${firstName} - Wade here. Welcome to GotaGuy on behalf of ${businessName}. Jobs will come to this number - claim them, dispatch your team your way, and text ARRIVED when they're on site and DONE when the job is complete. Pay hits your account same day. One step to get set up:`
-    : `Hey ${firstName} - Wade here. Welcome to GotaGuy. I'm sending repair jobs your way - pre-scoped, quoted, and ready to go. Pay hits your debit card the same day the job closes. One quick step to get set up for payouts:`;
+    ? `Hey ${firstName} - Wade here with GotaGuy. Good to have you on the team. Jobs come to this number - claim them, get your crew there, text ARRIVED on site and DONE when you're wrapped up. Pay hits your account same day. One step to get you set up:`
+    : `Hey ${firstName} - Wade here with GotaGuy. Good to have you on the team. I'll send you repair jobs - pre-scoped, priced, and ready to go. Pay hits your account same day the job closes. One quick step to get set up for payouts:`;
 
   await sendSMS(workerRecord.phone, msg1, marketNumber);
 
@@ -120,7 +120,7 @@ async function sendStripeOnboarding(workerRecord) {
 
   // Message 2 — Stripe link or fallback
   if (stripeUrl) {
-    const msg2 = `Add your debit card here - takes about 90 seconds: ${stripeUrl}\n\nOnce that's done I'll send you a sample of what a job card looks like. Any questions just reply here.`;
+    const msg2 = `Add your bank info here - takes about 90 seconds: ${stripeUrl}\n\nOnce that's done I'll send you a sample job so you know what to expect. Any questions just reply here.`;
     await sendSMS(workerRecord.phone, msg2, marketNumber);
   } else {
     await sendSMS(workerRecord.phone, "We'll send you a setup link shortly - hang tight.", marketNumber);
