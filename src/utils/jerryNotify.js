@@ -5,6 +5,11 @@ const JERRY_PHONE = '+14699910951';
 const sentNotifications = new Map();
 
 const notifyJerry = async (trigger, jobOrWorker, market) => {
+  if (process.env.JERRY_ENABLED !== 'true') {
+    console.log('Jerry SMS disabled - JERRY_ENABLED kill switch is off');
+    return;
+  }
+
   const dedupeKey = `${trigger}-${jobOrWorker.id}`;
 
   if (sentNotifications.has(dedupeKey)) {
