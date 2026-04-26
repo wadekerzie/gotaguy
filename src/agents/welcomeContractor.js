@@ -30,9 +30,10 @@ async function welcomeContractor(workerRecord) {
   const tosUrl = `${domain}${CONTRACTOR_TOS_PATH}`;
 
   const tosMsg =
-    `Welcome to GotaGuy! Before we set up your account, please review our Contractor Terms of Service at ${tosUrl}\n\n` +
-    `These cover how dispatch works, how you get paid, and your responsibilities as an independent contractor.\n\n` +
-    `Reply AGREE to confirm you accept these terms and continue your setup. Reply STOP at any time to opt out.`;
+    `Hey, welcome to GotaGuy. We're glad to have you on the roster.\n\n` +
+    `Before we get you set up, take a quick look at our sub agreement: ${tosUrl}\n\n` +
+    `It covers how jobs are dispatched, how you get paid, and what we expect on the job.\n\n` +
+    `Reply AGREE to confirm and we'll get your payment setup going. Reply STOP anytime to opt out.`;
 
   await sendSMS(workerRecord.phone, tosMsg, marketNumber);
 
