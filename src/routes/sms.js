@@ -17,6 +17,11 @@ const { notifyJerry } = require('../utils/jerryNotify');
 const { sendStripeOnboarding, welcomeContractor } = require('../agents/welcomeContractor');
 const supabase = require('../db/client');
 
+const SYSTEM_NUMBERS = [
+  process.env.JERRY_TWILIO_NUMBER,
+  process.env.TWILIO_PHONE_NUMBER,
+].filter(Boolean);
+
 // Twilio signature validation middleware
 function validateTwilioSignature(req, res, next) {
   if (process.env.NODE_ENV === 'development') {
@@ -40,11 +45,17 @@ function validateTwilioSignature(req, res, next) {
 }
 
 router.post('/', validateTwilioSignature, async (req, res) => {
+  const from = req.body.From;
+
+  if (SYSTEM_NUMBERS.includes(from)) {
+    console.log(`Inbound from system number ${from} - ignored`);
+    return res.sendStatus(200);
+  }
+
   res.set('Content-Type', 'text/xml');
   res.status(200).send('<Response></Response>');
 
   try {
-    const from = req.body.From;
     const inboundTo = req.body.To || process.env.TWILIO_PHONE_NUMBER;
     const body = req.body.Body || '';
     const trimmedBody = body.trim().toUpperCase();
