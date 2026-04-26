@@ -356,7 +356,7 @@ Set flag to "human" if you cannot resolve it.`;
   const parsed = JSON.parse(jsonMatch[0]);
 
   if (parsed.flag === 'human') {
-    await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR EXCEPTION - ${workerRecord.phone}: ${inboundText}`);
+    await sendSMS(process.env.MY_CELL_NUMBER, `CONTRACTOR FLAG - ${workerRecord.phone}: ${inboundText}`);
     const localizedReply = await translateForWorker(parsed.reply, workerRecord);
     await sendSMS(workerRecord.phone, localizedReply, marketNumber);
   } else {

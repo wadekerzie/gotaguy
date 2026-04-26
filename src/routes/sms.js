@@ -475,7 +475,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     const tosNotice = '\n\nBy texting GotaGuy you agree to our terms at gotaguymckinney.com/terms.';
 
     if (flag === 'human') {
-      await sendSMS(process.env.MY_CELL_NUMBER, `EXCEPTION - ${from}: ${body}`);
+      await sendSMS(process.env.MY_CELL_NUMBER, `FLAG - ${from}: ${body}`);
       const humanMsg = "You've been connected with our team. Someone will text you shortly.";
       await sendSMS(from, isFirstMessage ? humanMsg + tosNotice : humanMsg, inboundTo);
     } else {
