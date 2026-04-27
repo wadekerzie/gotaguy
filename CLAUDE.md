@@ -68,7 +68,7 @@ SMS-first home repair marketplace for Collin County TX. Homeowners text one numb
 
 Contractor creation sources:
 - `source: 'admin'` — created via POST /contractors (no trades set, worker selects via pending_trades flow)
-- `source: 'recruit'` — created via RECRUIT SMS command from MY_CELL_NUMBER (trade set at creation)
+- `source: 'recruit'` — created via RECRUIT SMS command from MY_CELL_NUMBER (`RECRUIT <phone> [name] [market]`); no trades set at creation, contractor self-selects via pending_trades flow
 - `source: 'inbound_sms'` — self-identified lead via inbound SMS
 
 TOS agreement columns (top-level on workers table, added migration 003):
@@ -80,7 +80,7 @@ TOS agreement columns (top-level on workers table, added migration 003):
 ## workers.data trade field
 - Workers store trades as `data.trades` (JSON array, e.g. `["electrical","plumbing"]`)
   - Admin-created workers: `data.trades` is absent until confirmed via pending_trades flow
-  - RECRUIT-created workers: `data.trades` seeded at creation with the recruited trade
+  - RECRUIT-created workers: `data.trades` absent at creation; contractor self-selects via pending_trades flow
   - Legacy McKinney workers: single string at `data.trade` (no migration applied)
 - `data.pending_trades_selection`: temp array written when contractor sends a trade list, cleared on YES
 - `getActiveWorkersByTradeAndZip` in db/client.js handles both: checks `data.trades[]` first,

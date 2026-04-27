@@ -720,12 +720,12 @@ async function handleNo(customerRecord, from, marketNumber) {
 }
 
 async function handleRecruit(adminPhone, rawBody, inboundTo) {
-  // Syntax: RECRUIT <phone> <trade> [name...] [market]
+  // Syntax: RECRUIT <phone> [name...] [market]
   const RECRUIT_MARKETS = ['mckinney', 'aurora'];
 
   const parts = rawBody.trim().split(/\s+/);
-  if (parts.length < 3) {
-    await sendSMS(adminPhone, 'Usage: RECRUIT <phone> <trade> [name] [market]', inboundTo);
+  if (parts.length < 2) {
+    await sendSMS(adminPhone, 'Usage: RECRUIT <phone> [name] [market]', inboundTo);
     return;
   }
 
@@ -736,14 +736,7 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
   }
   const e164Phone = '+1' + rawPhone;
 
-  const rawTrade = parts[2].toLowerCase();
-  const resolvedTrade = TRADES.includes(rawTrade) ? rawTrade : (TRADE_ALIASES[rawTrade] || null);
-  if (!resolvedTrade) {
-    await sendSMS(adminPhone, `Unknown trade: "${parts[2]}". Valid: ${TRADES.join(', ')}`, inboundTo);
-    return;
-  }
-
-  const nameAndMarket = parts.slice(3);
+  const nameAndMarket = parts.slice(2);
   const lastWord = (nameAndMarket[nameAndMarket.length - 1] || '').toLowerCase();
 
   let marketSlug = 'mckinney';
@@ -781,7 +774,7 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
       phone: e164Phone,
       status: 'pending_tos',
       market_id: resolvedMarketId,
-      data: { name, trades: [resolvedTrade], source: 'recruit' },
+      data: { name, source: 'recruit' },
     })
     .select()
     .single();
@@ -798,8 +791,8 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
     console.error('welcomeContractor error in RECRUIT:', err.message);
   }
 
-  await sendSMS(adminPhone, `Recruited ${name} (${resolvedTrade}, ${marketSlug}) — TOS sent to ${e164Phone}`, inboundTo);
-  console.log(`Admin recruited worker: ${name} (${resolvedTrade}, ${marketSlug}) ${e164Phone}`);
+  await sendSMS(adminPhone, `Recruited ${name} (${marketSlug}) — TOS sent to ${e164Phone}`, inboundTo);
+  console.log(`Admin recruited worker: ${name} (${marketSlug}) ${e164Phone}`);
 }
 
 async function storePhoto(twilioUrl, phone) {
