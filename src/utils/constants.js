@@ -120,6 +120,9 @@ const MSG_SCHEDULE_PROMPT = "What day works for you? We typically schedule withi
 // If this status name ever changes, update both handleClaim and this constant together
 const STATUS_PENDING_DAY_CONFIRMATION = 'active';
 
+// Sent to contractor on ARRIVED, before payment link fires — deterministic, no AI
+const MSG_ARRIVE_PRICE_TALK = `You're on site - now's the time. Walk the job with the customer and agree on a fair final price. The estimate they saw was a range. Your job is to nail down the exact number together before any work starts.`;
+
 // Post-payment review request — deterministic send, no AI involvement
 const GOOGLE_REVIEW_URL_MCKINNEY = 'https://g.page/r/CVrexW02zXzOEBM/review';
 const MSG_REVIEW_REQUEST = (reviewUrl) =>
@@ -162,4 +165,5 @@ module.exports = {
   STATUS_PENDING_DAY_CONFIRMATION,
   GOOGLE_REVIEW_URL_MCKINNEY,
   MSG_REVIEW_REQUEST,
+  MSG_ARRIVE_PRICE_TALK,
 };

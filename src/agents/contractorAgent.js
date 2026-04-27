@@ -1,6 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { loadSystemPrompt } = require('../utils/loadSystemPrompt');
-const { STATUS_PENDING_DAY_CONFIRMATION } = require('../utils/constants');
+const { STATUS_PENDING_DAY_CONFIRMATION, MSG_ARRIVE_PRICE_TALK } = require('../utils/constants');
 const { notifyJerry } = require('../utils/jerryNotify');
 const supabase = require('../db/client');
 const { updateCustomer, updateWorker } = require('../db/client');
@@ -245,6 +245,9 @@ async function handleArrived(workerRecord, customerRecord, marketNumber) {
     workerRecord
   );
   await sendSMS(workerRecord.phone, arrivedMsg, marketNumber);
+
+  const priceTalkMsg = await translateForWorker(MSG_ARRIVE_PRICE_TALK, workerRecord);
+  await sendSMS(workerRecord.phone, priceTalkMsg, marketNumber);
 
   // Generate Stripe payment link
   let paymentUrl;
