@@ -120,7 +120,7 @@ async function sendStripeOnboarding(workerRecord) {
 
   // Message 2 — Stripe link or fallback
   if (stripeUrl) {
-    const msg2 = `Add your bank info here - takes about 90 seconds: ${stripeUrl}\n\nOnce that's done I'll send you a sample job so you know what to expect. Any questions just reply here.`;
+    const msg2 = `Add your bank info here - takes about 90 seconds: ${stripeUrl}\n\nOnce that's done you'll pick your trades and we'll start sending you jobs. Any questions just reply here.`;
     await sendSMS(workerRecord.phone, msg2, marketNumber);
   } else {
     await sendSMS(workerRecord.phone, "We'll send you a setup link shortly - hang tight.", marketNumber);
