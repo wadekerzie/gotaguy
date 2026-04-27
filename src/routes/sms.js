@@ -720,10 +720,12 @@ async function handleNo(customerRecord, from, marketNumber) {
 }
 
 async function handleRecruit(adminPhone, rawBody, inboundTo) {
-  // Syntax: RECRUIT <phone> <trade> [name...]
+  // Syntax: RECRUIT <phone> <trade> [name...] [market]
+  const RECRUIT_MARKETS = ['mckinney', 'aurora'];
+
   const parts = rawBody.trim().split(/\s+/);
   if (parts.length < 3) {
-    await sendSMS(adminPhone, 'Usage: RECRUIT <phone> <trade> [name]', inboundTo);
+    await sendSMS(adminPhone, 'Usage: RECRUIT <phone> <trade> [name] [market]', inboundTo);
     return;
   }
 
@@ -741,7 +743,31 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
     return;
   }
 
-  const name = parts.slice(3).join(' ') || 'Unknown';
+  const nameAndMarket = parts.slice(3);
+  const lastWord = (nameAndMarket[nameAndMarket.length - 1] || '').toLowerCase();
+
+  let marketSlug = 'mckinney';
+  let nameParts = nameAndMarket;
+  if (RECRUIT_MARKETS.includes(lastWord)) {
+    marketSlug = lastWord;
+    nameParts = nameAndMarket.slice(0, -1);
+  }
+
+  const name = nameParts.join(' ') || 'Unknown';
+
+  const marketName = marketSlug.charAt(0).toUpperCase() + marketSlug.slice(1);
+  const { data: market } = await supabase
+    .from('markets')
+    .select('id, name, twilio_number')
+    .ilike('name', marketName)
+    .maybeSingle();
+
+  if (!market) {
+    await sendSMS(adminPhone, `Unknown market: "${marketSlug}". Valid: mckinney, aurora`, inboundTo);
+    return;
+  }
+
+  const resolvedMarketId = market.id;
 
   const { data: existing } = await supabase.from('workers').select('id').eq('phone', e164Phone).maybeSingle();
   if (existing) {
@@ -754,6 +780,7 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
     .insert({
       phone: e164Phone,
       status: 'pending_tos',
+      market_id: resolvedMarketId,
       data: { name, trades: [resolvedTrade], source: 'recruit' },
     })
     .select()
@@ -771,8 +798,8 @@ async function handleRecruit(adminPhone, rawBody, inboundTo) {
     console.error('welcomeContractor error in RECRUIT:', err.message);
   }
 
-  await sendSMS(adminPhone, `Recruited ${name} (${resolvedTrade}) — TOS sent to ${e164Phone}`, inboundTo);
-  console.log(`Admin recruited worker: ${name} (${resolvedTrade}) ${e164Phone}`);
+  await sendSMS(adminPhone, `Recruited ${name} (${resolvedTrade}, ${marketSlug}) — TOS sent to ${e164Phone}`, inboundTo);
+  console.log(`Admin recruited worker: ${name} (${resolvedTrade}, ${marketSlug}) ${e164Phone}`);
 }
 
 async function storePhoto(twilioUrl, phone) {
