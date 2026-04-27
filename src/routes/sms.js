@@ -333,18 +333,6 @@ router.post('/', validateTwilioSignature, async (req, res) => {
         return;
       }
 
-      // BUSY/AVAILABLE toggle
-      if (trimmedBody === 'BUSY') {
-        await updateWorker(from, 'busy', body, "Got it, you won't receive job cards until you text AVAILABLE.", {});
-        await sendSMS(from, "Got it, you won't receive job cards until you text AVAILABLE.", inboundTo);
-        return;
-      }
-      if (trimmedBody === 'AVAILABLE') {
-        await updateWorker(from, 'active', body, "You're back on. Job cards will resume immediately.", {});
-        await sendSMS(from, "You're back on. Job cards will resume immediately.", inboundTo);
-        return;
-      }
-
       // Parse command + optional job ID (e.g. "CLAIM 4821", "ARRIVED", "DONE 3190")
       const commandMatch = trimmedBody.match(/^(CLAIM|ARRIVED|DONE)(?:\s+(\d{4}))?$/);
       const commandKeyword = commandMatch ? commandMatch[1] : null;
