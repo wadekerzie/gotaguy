@@ -457,6 +457,14 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       return;
     }
 
+    // Ambiguous sender replied No — clean exit, no AI
+    if (record.data && record.data.ambiguous === true && record.status === 'new' && trimmedBody === 'NO') {
+      const exitMsg = 'No problem - if you ever need a hand with a repair or want to pick up jobs in the area, just text us back. Have a good one.';
+      await updateCustomer(from, 'closed', 'NO', exitMsg, {});
+      await sendSMS(from, exitMsg, inboundTo);
+      return;
+    }
+
     // Intent detection for in-progress jobs
     if (['dispatched', 'active', 'price_locked'].includes(record.status)) {
       const isAck = /^\s*(yes|ok|okay|great|thanks|thank you|wonderful|got it|sounds good|perfect|awesome|k|👍)\s*[!.]*\s*$/i.test(body);
